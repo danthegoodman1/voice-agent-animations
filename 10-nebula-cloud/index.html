@@ -61,6 +61,7 @@ const gain = new Float32Array(N), springK = new Float32Array(N), springC = new F
 const szf = new Float32Array(N), twF = new Float32Array(N), twP = new Float32Array(N)
 const alphaR = new Float32Array(N)
 const spriteIdx = new Uint8Array(N)
+const prad = new Float32Array(N) // base distance from center, for listening ripples
 
 for (let i = 0; i < N; i++) {
   // uniform direction on the sphere + cbrt radius = uniform density inside the ball
@@ -71,8 +72,11 @@ for (let i = 0; i < N; i++) {
   bx[i] = s * Math.cos(a) * r
   by[i] = u * r
   bz[i] = s * Math.sin(a) * r
-  // per-point spring variation desynchronizes pulses so bursts feel organic
-  gain[i] = 0.6 + 0.8 * Math.random()
+  prad[i] = r
+  // per-point spring variation desynchronizes pulses so bursts feel organic.
+  // The radius-squared factor layers speech in two shells: the indigo core
+  // barely moves while the magenta rim carries most of the surge.
+  gain[i] = (0.6 + 0.8 * Math.random()) * (0.25 + 1.05 * r * r)
   springK[i] = 45 + 55 * Math.random()
   springC[i] = 2 * Math.sqrt(springK[i]) * 0.33 // under-damped: visible spring-back
   const q = Math.random()
@@ -194,41 +198,39 @@ for (let i = 0; i < 16; i++) {
 }
 const glow = makeSprite(palette(0.3))
 const coreGlow = makeSprite([110, 215, 255])
-const streak = makeSprite([190, 240, 255])
 const ember = makeSprite([255, 196, 120])
 
-// ---- ambient motes that stream inward while listening (the "absorbing" cue) ----
-const M = 90
-const fx = new Float32Array(M), fy = new Float32Array(M), fz = new Float32Array(M)
-const fd = new Float32Array(M), fs = new Float32Array(M), fb = new Float32Array(M)
-function respawnMote(i) {
-  const u = Math.random() * 2 - 1
-  const a = Math.random() * Math.PI * 2
-  const s = Math.sqrt(1 - u * u)
-  fx[i] = s * Math.cos(a)
-  fy[i] = u
-  fz[i] = s * Math.sin(a)
-  fd[i] = 1.7 + Math.random() * 0.8
-  fs[i] = 0.75 + 0.75 * Math.random()
-  fb[i] = 0.6 + 0.4 * Math.random()
-}
-for (let i = 0; i < M; i++) {
-  respawnMote(i)
-  fd[i] = 0.85 + Math.random() * 1.65 // pre-scatter along the full inbound path
+// listening ripples: each voice peak launches a thin spherical shell of
+// brightness that travels inward through the cloud, like sound being absorbed
+const RIPMAX = 4
+const ripR = new Float32Array(RIPMAX), ripS = new Float32Array(RIPMAX)
+const ripOn = new Uint8Array(RIPMAX)
+function spawnRipple(strength) {
+  for (let k = 0; k < RIPMAX; k++) {
+    if (ripOn[k]) continue
+    ripOn[k] = 1
+    ripR[k] = 1.3
+    ripS[k] = strength
+    return
+  }
 }
 
 // ---- states ----
 const STATES = ['idle', 'listening', 'working', 'speaking']
 const CFG = {
   idle:      { radius: 1.0,  speed: 0.05, bright: 0.4,  boost: 0.0,  amp: 0.0  },
-  listening: { radius: 0.7,  speed: 0.13, bright: 0.8,  boost: 0.35, amp: 0.1  },
+  listening: { radius: 0.7,  speed: 0.13, bright: 0.8,  boost: 0.15, amp: 0.05 },
   working:   { radius: 1.0,  speed: 0.11, bright: 0.55, boost: 0.0,  amp: 0.0  },
-  speaking:  { radius: 1.0,  speed: 0.36, bright: 1.0,  boost: 0.6,  amp: 0.52 }
+  speaking:  { radius: 1.0,  speed: 0.36, bright: 1.0,  boost: 0.6,  amp: 0.36 }
 }
 let state = 'idle'
 let radCur = 1, speedCur = 0.05, brightCur = 0.4, boostCur = 0, ampCur = 0
 let envLevel = 0
-// crossfade weight for listening-only visuals: cool palette, motes, core glow
+// slow follower of the envelope: drives the core glow so it swells gently
+// instead of pulsing at speech rate
+let envSlow = 0
+let prevRaw = 0
+// crossfade weight for listening-only visuals: cool palette, ripples, core glow
 let wListen = 0
 // crossfade weight for working-only visuals: synapse links and firing pulses
 let wWork = 0
@@ -320,8 +322,8 @@ function frame(now) {
 
   let raw = 0
   if (state === 'listening') {
-    // fake mic level: one dominant slow wave reads as deliberate, rhythmic
-    // breathing, with a lighter shimmer on top so it stays organic
+    // fake mic level: one dominant slow wave with a lighter shimmer on top;
+    // its peaks set the rhythm of the inward ripples
     raw = 0.5 + 0.38 * Math.sin(t * 3.2) + 0.12 * Math.sin(t * 7.1 + 2.0)
     if (raw < 0) raw = 0
     else if (raw > 1) raw = 1
@@ -331,6 +333,16 @@ function frame(now) {
   }
   // fast attack / slow release keeps speech pulses punchy yet organic
   envLevel += (raw - envLevel) * (1 - Math.exp(-dt * (raw > envLevel ? 28 : 9)))
+  envSlow += (envLevel - envSlow) * (1 - Math.exp(-dt * 2.5))
+
+  // one ripple per voice peak: rising-edge trigger on the raw mic level
+  if (state === 'listening' && raw > 0.62 && prevRaw <= 0.62) spawnRipple(0.5 + 0.5 * raw)
+  prevRaw = raw
+  for (let k = 0; k < RIPMAX; k++) {
+    if (!ripOn[k]) continue
+    ripR[k] -= dt * 1.1
+    if (ripR[k] < -0.15) ripOn[k] = 0 // let the shell collapse fully at the center
+  }
 
   ry += speedCur * dt
   rx += speedCur * 0.31 * dt
@@ -355,14 +367,10 @@ function frame(now) {
   const gs = unit * (0.75 + 0.15 * envLevel)
   ctx.drawImage(glow, cxs - gs / 2, cys - gs / 2, gs, gs)
 
-  // listening breathes as a whole: the entire cloud swells and shrinks ~25%
-  // with the mic envelope, far beyond the per-point jitter of other states
-  const breathe = 1 + wListen * (envLevel - 0.5) * 0.55
-
   if (wListen > 0.01) {
-    // focused attention core that brightens on each envelope peak
-    ctx.globalAlpha = wListen * (0.1 + 0.3 * envLevel)
-    const cs = unit * (0.26 + 0.14 * envLevel)
+    // attention core swells gently with the slow envelope, never pulses
+    ctx.globalAlpha = wListen * (0.1 + 0.18 * envSlow)
+    const cs = unit * (0.26 + 0.1 * envSlow)
     ctx.drawImage(coreGlow, cxs - cs / 2, cys - cs / 2, cs, cs)
   }
 
@@ -375,7 +383,19 @@ function frame(now) {
     disp[i] += vel[i] * dt
     excite[i] *= exDecay
 
-    const m = radCur * breathe * (1 + disp[i])
+    // ripple shells brighten particles they pass and nudge them outward a
+    // touch, so each voice peak visibly washes through the cloud
+    let rip = 0
+    if (wListen > 0.01) {
+      for (let k = 0; k < RIPMAX; k++) {
+        if (!ripOn[k]) continue
+        const d = prad[i] - ripR[k]
+        if (d > -0.16 && d < 0.16) rip += ripS[k] * (1 - (d < 0 ? -d : d) * 6.25)
+      }
+      rip *= wListen
+    }
+
+    const m = radCur * (1 + disp[i] + rip * 0.05)
     const X = bx[i] * m
     const Y = by[i] * m
     const Z = bz[i] * m
@@ -392,7 +412,8 @@ function frame(now) {
     if (near < 0) near = 0
     else if (near > 1) near = 1
     const tw = 0.8 + 0.2 * Math.sin(t * twF[i] + twP[i])
-    let a = bright * alphaR[i] * (0.2 + 0.8 * near * near) * tw
+    // displaced particles also flare brighter, so the surging rim glows hardest
+    let a = bright * alphaR[i] * (0.2 + 0.8 * near * near) * tw * (1 + rip + disp[i] * 0.7)
     if (a > 1) a = 1
 
     const s = szf[i] * unit * p * (1 + disp[i] * 0.6)
@@ -466,35 +487,6 @@ function frame(now) {
     }
   }
 
-  if (wListen > 0.01) {
-    for (let i = 0; i < M; i++) {
-      // motes accelerate as they near the cloud, like being drawn in
-      fd[i] -= fs[i] * (0.5 + 0.7 / fd[i]) * dt
-      if (fd[i] < 0.8) respawnMote(i)
-      const ux0 = fx[i], uy0 = fy[i], uz0 = fz[i]
-      const ux = ux0 * cy + uz0 * sy
-      const uz1 = uz0 * cy - ux0 * sy
-      const uy = uy0 * cx - uz1 * sx
-      const uz = uy0 * sx + uz1 * cx
-      const d = fd[i]
-      let af = (2.5 - d) * 1.4 // fade in from the outer spawn shell
-      if (af > 1) af = 1
-      let ao = (d - 0.8) * 4 // fade out as the cloud absorbs them
-      if (ao > 1) ao = 1
-      const aa = wListen * af * ao * fb[i] * (0.4 + 0.6 * envLevel)
-      const sz = unit * 0.016
-      // comet streak: head plus two fading tail segments trailing outward
-      for (let k = 0; k < 3; k++) {
-        const dd = d + k * 0.09
-        const pp = F / (F + uz * dd)
-        const ss = sz * pp * (1 - k * 0.22)
-        const sxp = cxs + ux * dd * pp * R - ss / 2
-        const syp = cys + uy * dd * pp * R - ss / 2
-        ctx.globalAlpha = aa * (1 - k * 0.41)
-        ctx.drawImage(streak, sxp, syp, ss, ss)
-      }
-    }
-  }
 }
 
 document.addEventListener('visibilitychange', () => {

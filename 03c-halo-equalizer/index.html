@@ -220,7 +220,10 @@ let waveEnv = 0   // traveling-wave amplitude 0..1, driven by mic level
 let spokeMix = 0  // 0 = ring geometry, 1 = radial equalizer bars
 let spokeSpin = 0 // slow rotation of the whole spoke assembly while speaking
 let workEnv = 0   // working wave-packet amplitude 0..1
-let workAng = 0   // packet position, advances at constant speed (not audio-driven)
+// two packets orbiting in opposite directions at constant speeds (not
+// audio-driven); their periodic collisions are the working signature
+let workAng = 0
+let workAng2 = 2.5
 
 // Layered sines as fake mic level: smooth, wandering, never periodic-looking
 function micEnv(t) {
@@ -266,9 +269,9 @@ function frame(now) {
     waveTgt = 0.25 + 0.75 * e
     burst = 0
   } else if (stateName === 'working') {
-    // deliberately not audio-reactive: steady glow, constant-speed packet
+    // deliberately not audio-reactive: steady glow, constant-speed packets
     radTgt = 0
-    briTgt = 0.18
+    briTgt = 0.26
     waveTgt = 0
     burst = 0
   } else if (stateName === 'speaking') {
@@ -287,7 +290,9 @@ function frame(now) {
   waveEnv += (waveTgt - waveEnv) * Math.min(1, dt * 8)
   spokeMix += ((stateName === 'speaking' ? 1 : 0) - spokeMix) * Math.min(1, dt * 7)
   workEnv += ((stateName === 'working' ? 1 : 0) - workEnv) * Math.min(1, dt * 7)
-  workAng += dt * 1.9  // one lap every ~3.3s, metronome-steady
+  // unequal speeds keep the collision point wandering around the ring
+  workAng += dt * 1.9
+  workAng2 -= dt * 1.35
 
   // Bands: half-wave-rectified sine products gated by the burst envelope,
   // fast attack / slower release so each bar slams up and falls back.
@@ -306,7 +311,7 @@ function frame(now) {
   const ringR = curR * minDim * (1 + radEnv)
   const spreadPx = curSpread * minDim
   const wavePx = waveEnv * 0.27 * ringR  // traveling wave peaks near 25-30% of radius
-  const workPx = 0.18 * ringR            // working packet height, scaled by workEnv per particle
+  const workPx = 0.24 * ringR            // per-packet height; doubles when packets collide
   const stubPx = 0.045 * minDim          // bar length at zero band, keeps spikes visible in pauses
   const extPx = 0.20 * minDim            // bar extension at full band
   const sizeMul = 1 + 0.25 * briEnv
@@ -333,12 +338,17 @@ function frame(now) {
     angle[i] += baseSpeed[i] * curSpeed * dt * im
     const aR = angle[i]
     const scatter = radOff[i] * spreadPx + Math.sin(t * wobF[i] + phase[i]) * wobA[i]
-    // working: single raised-cosine bump (~115 deg wide) orbiting the ring
+    // working: two raised-cosine bumps (~115 deg wide) counter-orbiting the
+    // ring; where they overlap the bumps stack into a collision flare
     let wb = 0
     if (workEnv > 0.001) {
       let dW = aR - workAng
       dW -= Math.round(dW / TAU) * TAU
-      if (dW > -1 && dW < 1) wb = workEnv * (0.5 + 0.5 * Math.cos(dW * Math.PI))
+      if (dW > -1 && dW < 1) wb = 0.5 + 0.5 * Math.cos(dW * Math.PI)
+      let dW2 = aR - workAng2
+      dW2 -= Math.round(dW2 / TAU) * TAU
+      if (dW2 > -1 && dW2 < 1) wb += 0.5 + 0.5 * Math.cos(dW2 * Math.PI)
+      wb *= workEnv
     }
     // two counter-traveling harmonics make the listening ring roll like liquid
     const rRing = ringR + scatter + wb * workPx
@@ -354,11 +364,11 @@ function frame(now) {
       const rSpoke = ringR + scatter * 0.3 + chainT[i] * (stubPx + band[s] * extPx)
       rFin = rRing + (rSpoke - rRing) * m
       // active bars glow, quiet bars dim, tips flare hardest
-      boost = im * (1 + 0.9 * wb) + m * (0.45 + 0.85 * band[s] + 0.7 * chainT[i] * band[s])
+      boost = im * (1 + 1.5 * wb) + m * (0.45 + 0.85 * band[s] + 0.7 * chainT[i] * band[s])
     } else {
       aFin = aR
       rFin = rRing
-      boost = 1 + 0.9 * wb  // packet carries a glow highlight around the ring
+      boost = 1 + 1.5 * wb  // packets carry glow highlights around the ring
     }
 
     const x = cx + Math.cos(aFin) * rFin
