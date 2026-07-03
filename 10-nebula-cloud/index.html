@@ -237,10 +237,10 @@ function spawnRipple(strength) {
 // ---- states ----
 const STATES = ['idle', 'listening', 'working', 'speaking']
 const CFG = {
-  idle:      { radius: 1.0,  speed: 0.05, bright: 0.4,  boost: 0.0,  amp: 0.0  },
-  listening: { radius: 0.7,  speed: 0.13, bright: 0.8,  boost: 0.15, amp: 0.05 },
-  working:   { radius: 1.0,  speed: 0.11, bright: 0.55, boost: 0.0,  amp: 0.0  },
-  speaking:  { radius: 1.0,  speed: 0.36, bright: 1.0,  boost: 0.6,  amp: 0.36 }
+  idle:      { radius: 1.0,  speed: 0.025, bright: 0.4,  boost: 0.0,  amp: 0.0  },
+  listening: { radius: 0.7,  speed: 0.065, bright: 0.8,  boost: 0.15, amp: 0.05 },
+  working:   { radius: 1.0,  speed: 0.055, bright: 0.55, boost: 0.0,  amp: 0.0  },
+  speaking:  { radius: 1.0,  speed: 0.18,  bright: 1.0,  boost: 0.6,  amp: 0.36 }
 }
 let state = 'idle'
 let radCur = 1, speedCur = 0.05, brightCur = 0.4, boostCur = 0, ampCur = 0
@@ -325,8 +325,9 @@ addEventListener('resize', resize)
 resize()
 
 // ---- render loop ----
-const TWO_PI = Math.PI * 2
-let ry = 0, rx = 0.4
+// Earth-like rotation: a fixed axial tilt, spinning about that one axis only
+let ry = 0
+const rx = 0.4
 let last = performance.now()
 let raf = 0
 
@@ -378,7 +379,6 @@ function frame(now) {
   }
 
   ry += speedCur * dt
-  rx += speedCur * 0.31 * dt
 
   const cy = Math.cos(ry), sy = Math.sin(ry)
   const cx = Math.cos(rx), sx = Math.sin(rx)
