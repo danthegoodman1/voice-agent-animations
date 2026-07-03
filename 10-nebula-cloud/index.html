@@ -83,15 +83,79 @@ for (let i = 0; i < N; i++) {
   spriteIdx[i] = Math.min(15, r * 16) | 0
 }
 
-// working-state targets: points organize into a thin two-armed spiral galaxy
-const gx = new Float32Array(N), gy = new Float32Array(N), gz = new Float32Array(N)
-for (let i = 0; i < N; i++) {
-  const r = Math.sqrt(bx[i] * bx[i] + by[i] * by[i] + bz[i] * bz[i])
-  const ang = (i & 1) * Math.PI + r * 2.9 + (Math.random() - 0.5) * 0.45
-  gx[i] = Math.cos(ang) * r
-  gz[i] = Math.sin(ang) * r
-  gy[i] = by[i] * (0.08 + 0.5 * (1 - r)) // thin disc with a soft central bulge
+// working-state: a synaptic graph over the cloud. Each point links to its
+// nearest neighbors and golden pulses travel edge to edge in cascades, like
+// thoughts firing through a brain. A few long-range links let occasional
+// "insights" arc across the whole nebula.
+const pairSeen = new Set()
+const edgeList = []
+function addEdge(i, j) {
+  const key = i < j ? i * N + j : j * N + i
+  if (i === j || j < 0 || pairSeen.has(key)) return
+  pairSeen.add(key)
+  edgeList.push(i, j)
 }
+for (let i = 0; i < N; i++) {
+  let n1 = -1, n2 = -1, n3 = -1, d1 = 1e9, d2 = 1e9, d3 = 1e9
+  for (let j = 0; j < N; j++) {
+    if (j === i) continue
+    const dx = bx[i] - bx[j], dy = by[i] - by[j], dz = bz[i] - bz[j]
+    const d = dx * dx + dy * dy + dz * dz
+    if (d < d1) { d3 = d2; n3 = n2; d2 = d1; n2 = n1; d1 = d; n1 = j }
+    else if (d < d2) { d3 = d2; n3 = n2; d2 = d; n2 = j }
+    else if (d < d3) { d3 = d; n3 = j }
+  }
+  addEdge(i, n1)
+  addEdge(i, n2)
+  addEdge(i, n3)
+}
+for (let k = 0; k < 24; k++) {
+  const i = (Math.random() * N) | 0, j = (Math.random() * N) | 0
+  const dx = bx[i] - bx[j], dy = by[i] - by[j], dz = bz[i] - bz[j]
+  if (dx * dx + dy * dy + dz * dz > 0.9) addEdge(i, j)
+}
+const E = edgeList.length / 2
+const edgeA = new Uint16Array(E), edgeB = new Uint16Array(E)
+for (let e = 0; e < E; e++) {
+  edgeA[e] = edgeList[e * 2]
+  edgeB[e] = edgeList[e * 2 + 1]
+}
+// CSR adjacency so an arriving pulse can pick a random outgoing hop
+const adjOff = new Uint32Array(N + 1)
+for (let e = 0; e < E; e++) { adjOff[edgeA[e] + 1]++; adjOff[edgeB[e] + 1]++ }
+for (let i = 0; i < N; i++) adjOff[i + 1] += adjOff[i]
+const adjTo = new Uint16Array(E * 2)
+{
+  const cursor = adjOff.slice(0, N)
+  for (let e = 0; e < E; e++) {
+    adjTo[cursor[edgeA[e]]++] = edgeB[e]
+    adjTo[cursor[edgeB[e]]++] = edgeA[e]
+  }
+}
+// fixed pulse pool: zero allocations per frame
+const PMAX = 56
+const pFrom = new Uint16Array(PMAX), pTo = new Uint16Array(PMAX)
+const pT = new Float32Array(PMAX), pSpd = new Float32Array(PMAX)
+const pOn = new Uint8Array(PMAX)
+const excite = new Float32Array(N)
+let spawnAcc = 0
+function firePulse(from, to) {
+  for (let k = 0; k < PMAX; k++) {
+    if (pOn[k]) continue
+    pOn[k] = 1
+    pFrom[k] = from
+    pTo[k] = to
+    pT[k] = 0
+    pSpd[k] = 2.2 + 2.5 * Math.random()
+    return
+  }
+}
+function fireFrom(i) {
+  const lo = adjOff[i], hi = adjOff[i + 1]
+  if (hi > lo) firePulse(i, adjTo[lo + ((Math.random() * (hi - lo)) | 0)])
+}
+// projected point centers, kept for drawing pulses between them
+const scrX = new Float32Array(N), scrY = new Float32Array(N), scrP = new Float32Array(N)
 
 // ---- pre-rendered soft sprites tinted along the nebula palette ----
 // indigo core -> cyan mids -> warm magenta rim, keyed by radius from center
@@ -131,6 +195,7 @@ for (let i = 0; i < 16; i++) {
 const glow = makeSprite(palette(0.3))
 const coreGlow = makeSprite([110, 215, 255])
 const streak = makeSprite([190, 240, 255])
+const ember = makeSprite([255, 196, 120])
 
 // ---- ambient motes that stream inward while listening (the "absorbing" cue) ----
 const M = 90
@@ -157,7 +222,7 @@ const STATES = ['idle', 'listening', 'working', 'speaking']
 const CFG = {
   idle:      { radius: 1.0,  speed: 0.05, bright: 0.4,  boost: 0.0,  amp: 0.0  },
   listening: { radius: 0.7,  speed: 0.13, bright: 0.8,  boost: 0.35, amp: 0.1  },
-  working:   { radius: 1.0,  speed: 0.45, bright: 0.6,  boost: 0.0,  amp: 0.0  },
+  working:   { radius: 1.0,  speed: 0.11, bright: 0.55, boost: 0.0,  amp: 0.0  },
   speaking:  { radius: 1.0,  speed: 0.36, bright: 1.0,  boost: 0.6,  amp: 0.52 }
 }
 let state = 'idle'
@@ -165,7 +230,7 @@ let radCur = 1, speedCur = 0.05, brightCur = 0.4, boostCur = 0, ampCur = 0
 let envLevel = 0
 // crossfade weight for listening-only visuals: cool palette, motes, core glow
 let wListen = 0
-// morph weight for working: sphere-to-galaxy blend and fixed viewing tilt
+// crossfade weight for working-only visuals: synapse links and firing pulses
 let wWork = 0
 
 // speech gate: random bursts and pauses, with occasional longer word gaps
@@ -268,13 +333,7 @@ function frame(now) {
   envLevel += (raw - envLevel) * (1 - Math.exp(-dt * (raw > envLevel ? 28 : 9)))
 
   ry += speedCur * dt
-  rx += speedCur * 0.31 * dt * (1 - wWork)
-  // while working, steer the tilt to a fixed angle (via the shortest arc) so
-  // the galaxy disc is always seen at a clear, steady three-quarter view
-  let dTilt = (0.5 - rx) % TWO_PI
-  if (dTilt < -Math.PI) dTilt += TWO_PI
-  else if (dTilt > Math.PI) dTilt -= TWO_PI
-  rx += dTilt * wWork * (1 - Math.exp(-dt * 4))
+  rx += speedCur * 0.31 * dt
 
   const cy = Math.cos(ry), sy = Math.sin(ry)
   const cx = Math.cos(rx), sx = Math.sin(rx)
@@ -308,21 +367,26 @@ function frame(now) {
   }
 
   const envAmp = envLevel * ampCur
+  const exDecay = Math.exp(-dt * 3)
   for (let i = 0; i < N; i++) {
     const tgt = envAmp * gain[i]
     const acc = (tgt - disp[i]) * springK[i] - springC[i] * vel[i]
     vel[i] += acc * dt
     disp[i] += vel[i] * dt
+    excite[i] *= exDecay
 
     const m = radCur * breathe * (1 + disp[i])
-    const X = (bx[i] + (gx[i] - bx[i]) * wWork) * m
-    const Y = (by[i] + (gy[i] - by[i]) * wWork) * m
-    const Z = (bz[i] + (gz[i] - bz[i]) * wWork) * m
+    const X = bx[i] * m
+    const Y = by[i] * m
+    const Z = bz[i] * m
     const x1 = X * cy + Z * sy
     const z1 = Z * cy - X * sy
     const y2 = Y * cx - z1 * sx
     const z2 = Y * sx + z1 * cx
     const p = F / (F + z2)
+    scrX[i] = cxs + x1 * p * R
+    scrY[i] = cys + y2 * p * R
+    scrP[i] = p
 
     let near = (p - 0.72) * 1.15 // maps the cloud's depth range roughly onto 0..1
     if (near < 0) near = 0
@@ -332,8 +396,8 @@ function frame(now) {
     if (a > 1) a = 1
 
     const s = szf[i] * unit * p * (1 + disp[i] * 0.6)
-    const px = cxs + x1 * p * R - s / 2
-    const py = cys + y2 * p * R - s / 2
+    const px = scrX[i] - s / 2
+    const py = scrY[i] - s / 2
     // crossfade the whole cloud to the cool listening palette; outside the
     // transition only one of the two draws runs
     if (wListen < 0.99) {
@@ -343,6 +407,62 @@ function frame(now) {
     if (wListen > 0.01) {
       ctx.globalAlpha = a * wListen
       ctx.drawImage(coolSprites[spriteIdx[i]], px, py, s, s)
+    }
+    // a node freshly hit by a pulse flares warm, then cools back down
+    if (wWork > 0.01 && excite[i] > 0.02) {
+      const es = s * (1.8 + 1.5 * excite[i])
+      ctx.globalAlpha = wWork * excite[i] * 0.9
+      ctx.drawImage(ember, scrX[i] - es / 2, scrY[i] - es / 2, es, es)
+    }
+  }
+
+  if (wWork > 0.01) {
+    // gossamer web: one batched stroke, skipping edges fully in the back half
+    // so the graph reads as a 3D structure rather than flat scribble
+    ctx.globalAlpha = wWork * 0.1
+    ctx.strokeStyle = 'rgba(255, 208, 150, 0.6)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    for (let e = 0; e < E; e++) {
+      const ia = edgeA[e], ib = edgeB[e]
+      if (scrP[ia] + scrP[ib] < 1.9) continue
+      ctx.moveTo(scrX[ia], scrY[ia])
+      ctx.lineTo(scrX[ib], scrY[ib])
+    }
+    ctx.stroke()
+
+    // thought cascades arrive in slow waves rather than a constant drizzle
+    spawnAcc += dt * wWork * (2 + 8 * (0.5 + 0.5 * Math.sin(t * 0.7)))
+    while (spawnAcc >= 1) {
+      spawnAcc -= 1
+      fireFrom((Math.random() * N) | 0)
+    }
+
+    for (let k = 0; k < PMAX; k++) {
+      if (!pOn[k]) continue
+      pT[k] += pSpd[k] * dt
+      if (pT[k] >= 1) {
+        const at = pTo[k]
+        excite[at] = 1
+        pOn[k] = 0
+        // usually keep hopping, sometimes branch; combined odds stay below 1
+        // so every cascade eventually dies out and activity comes in waves
+        if (Math.random() < 0.8) fireFrom(at)
+        if (Math.random() < 0.15) fireFrom(at)
+        continue
+      }
+      const x0 = scrX[pFrom[k]], y0 = scrY[pFrom[k]]
+      const dx = scrX[pTo[k]] - x0, dy = scrY[pTo[k]] - y0
+      const pm = scrP[pFrom[k]] + (scrP[pTo[k]] - scrP[pFrom[k]]) * pT[k]
+      const hs = unit * 0.024 * pm
+      // bright head with two fading tail segments trailing behind it
+      for (let q = 0; q < 3; q++) {
+        const tq = pT[k] - q * 0.08
+        if (tq < 0) break
+        const ss = hs * (1 - q * 0.26)
+        ctx.globalAlpha = wWork * (0.85 - q * 0.28)
+        ctx.drawImage(ember, x0 + dx * tq - ss / 2, y0 + dy * tq - ss / 2, ss, ss)
+      }
     }
   }
 

@@ -3,280 +3,1132 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Voice Agent Animations — Gallery</title>
+<title>Voice Agent Animations</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307080c'/%3E%3Cpath d='M16 34c7-18 25-18 32 0' fill='none' stroke='%2367e8f9' stroke-width='6' stroke-linecap='round'/%3E%3Cpath d='M19 39c8 11 18 11 26 0' fill='none' stroke='%23b7f06f' stroke-width='6' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='7' fill='%23a78bfa'/%3E%3C/svg%3E">
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    color-scheme: dark;
+    --bg: #07080c;
+    --panel: #0c0f16;
+    --panel-2: #10141d;
+    --line: rgba(255, 255, 255, .11);
+    --line-strong: rgba(255, 255, 255, .22);
+    --text: rgba(255, 255, 255, .92);
+    --muted: rgba(255, 255, 255, .58);
+    --faint: rgba(255, 255, 255, .36);
+    --accent: #69e2ff;
+    --accent-2: #b59cff;
+    --accent-soft: rgba(105, 226, 255, .15);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { min-height: 100%; }
 
   body {
-    background: #08080d;
-    color: rgba(255, 255, 255, .85);
-    font-family: system-ui, -apple-system, sans-serif;
-    min-height: 100vh;
-    padding: 48px 40px 120px;
+    margin: 0;
+    background:
+      linear-gradient(180deg, rgba(20, 26, 35, .72), transparent 260px),
+      linear-gradient(135deg, rgba(65, 86, 112, .16), transparent 42%),
+      var(--bg);
+    color: var(--text);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
 
-  .statebar {
-    position: fixed;
-    left: 50%;
-    bottom: 24px;
-    transform: translateX(-50%);
-    display: flex;
-    gap: 4px;
-    padding: 5px;
-    border-radius: 999px;
-    background: rgba(16, 16, 26, .78);
-    border: 1px solid rgba(255, 255, 255, .12);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, .5);
-    z-index: 10;
-  }
+  button, a { font: inherit; }
 
-  .statebar button {
+  button {
     appearance: none;
     border: 0;
-    background: transparent;
-    color: rgba(255, 255, 255, .55);
-    font: 500 13px/1 system-ui, -apple-system, sans-serif;
-    padding: 9px 18px;
-    border-radius: 999px;
-    cursor: pointer;
-    transition: background .2s, color .2s;
   }
 
-  .statebar button:hover { color: rgba(255, 255, 255, .85); }
-
-  .statebar button.active {
-    background: linear-gradient(90deg, rgba(103, 232, 249, .25), rgba(167, 139, 250, .25));
-    color: #fff;
+  .app {
+    display: grid;
+    grid-template-columns: minmax(260px, 330px) minmax(0, 1fr);
+    min-height: 100vh;
   }
 
-  header { max-width: 1400px; margin: 0 auto 40px; }
+  .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    padding: 28px 18px 20px;
+    border-right: 1px solid var(--line);
+    background: rgba(8, 10, 15, .76);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  .brand {
+    padding: 0 8px;
+  }
+
+  .eyebrow {
+    margin: 0 0 8px;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+  }
 
   h1 {
-    font-size: 28px;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    background: linear-gradient(90deg, #67e8f9, #a78bfa, #f472b6);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    display: inline-block;
+    margin: 0;
+    font-size: clamp(28px, 4vw, 48px);
+    line-height: .98;
+    font-weight: 750;
+    letter-spacing: 0;
   }
 
-  header p {
-    margin-top: 8px;
+  .brand p:last-child {
+    margin: 14px 0 0;
+    color: var(--muted);
     font-size: 14px;
-    color: rgba(255, 255, 255, .45);
-    max-width: 640px;
     line-height: 1.5;
   }
 
-  .grid {
-    max-width: 1400px;
-    margin: 0 auto;
+  .animation-list {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-    gap: 24px;
+    gap: 7px;
+    overflow-y: auto;
+    padding: 2px 4px 8px;
+    scrollbar-color: rgba(255, 255, 255, .24) transparent;
   }
 
-  .card {
-    display: block;
-    text-decoration: none;
-    color: inherit;
-    border: 1px solid rgba(255, 255, 255, .07);
-    border-radius: 16px;
-    overflow: hidden;
-    background: #0b0b12;
-    transition: border-color .25s, transform .25s;
-  }
-
-  .card:hover {
-    border-color: rgba(255, 255, 255, .22);
-    transform: translateY(-2px);
-  }
-
-  .preview {
-    position: relative;
-    aspect-ratio: 16 / 10;
-    overflow: hidden;
-    background: #08080d;
-  }
-
-  .preview iframe {
+  .animation-button {
     width: 100%;
-    height: 100%;
-    border: 0;
-    display: block;
-    /* iframe never sees the mouse; the whole card is one link */
-    pointer-events: none;
+    min-height: 58px;
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    padding: 8px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: var(--muted);
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    transition: color .18s ease, background .18s ease, border-color .18s ease;
   }
 
-  .meta {
-    padding: 14px 18px 16px;
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
+  .animation-button:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, .045);
   }
 
-  .meta h2 { font-size: 15px; font-weight: 600; }
+  .animation-button.active {
+    color: var(--text);
+    background: linear-gradient(135deg, var(--accent-soft), rgba(255, 255, 255, .035));
+    border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  }
 
-  .meta .num {
+  .animation-button .num {
+    width: 42px;
+    height: 42px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 8px;
+    color: var(--text);
+    background: rgba(255, 255, 255, .07);
     font-size: 12px;
-    color: rgba(255, 255, 255, .3);
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
   }
 
-  .meta p {
-    font-size: 12.5px;
-    color: rgba(255, 255, 255, .45);
-    line-height: 1.45;
-    flex: 1;
+  .animation-button.active .num {
+    color: #061016;
+    background: var(--accent);
   }
 
-  .meta .left { flex: 1; }
-  .meta .left p { margin-top: 3px; }
+  .animation-button strong,
+  .animation-button span:last-child {
+    min-width: 0;
+  }
+
+  .animation-button strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    font-weight: 650;
+  }
+
+  .animation-button span:last-child {
+    display: block;
+    margin-top: 3px;
+    overflow: hidden;
+    color: var(--faint);
+    font-size: 12px;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 26px clamp(18px, 4vw, 48px);
+  }
+
+  .topbar {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 18px;
+    min-height: 106px;
+  }
+
+  .meta {
+    min-width: 0;
+    max-width: 820px;
+  }
+
+  .kicker {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 22px;
+    color: var(--faint);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+
+  .kicker::before {
+    content: "";
+    width: 34px;
+    height: 2px;
+    border-radius: 99px;
+    background: var(--accent);
+  }
+
+  h2 {
+    margin: 8px 0 0;
+    overflow-wrap: anywhere;
+    font-size: clamp(34px, 7vw, 82px);
+    line-height: .9;
+    font-weight: 780;
+    letter-spacing: 0;
+  }
+
+  .description {
+    margin: 14px 0 0;
+    max-width: 720px;
+    color: var(--muted);
+    font-size: clamp(14px, 1.7vw, 17px);
+    line-height: 1.55;
+  }
+
+  .top-actions {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .view-toggle {
+    min-height: 42px;
+    display: inline-flex;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .045);
+  }
+
+  .view-button {
+    min-width: 74px;
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 6px;
+    color: var(--muted);
+    background: transparent;
+    cursor: pointer;
+    transition: color .18s ease, background .18s ease;
+  }
+
+  .view-button:hover {
+    color: var(--text);
+  }
+
+  .view-button.active {
+    color: #061016;
+    background: var(--accent);
+  }
+
+  .open-link {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 0 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--text);
+    background: rgba(255, 255, 255, .045);
+    text-decoration: none;
+    transition: border-color .18s ease, background .18s ease;
+  }
+
+  .open-link:hover {
+    border-color: var(--line-strong);
+    background: rgba(255, 255, 255, .075);
+  }
+
+  .stage {
+    position: relative;
+    min-height: 420px;
+    flex: 1 1 auto;
+    display: grid;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    background: #08080d;
+    box-shadow: 0 30px 90px rgba(0, 0, 0, .35);
+  }
+
+  .stage::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border: 1px solid rgba(255, 255, 255, .055);
+    border-radius: inherit;
+    z-index: 1;
+  }
+
+  .stage iframe {
+    width: 100%;
+    height: 100%;
+    min-height: inherit;
+    display: block;
+    border: 0;
+    background: #08080d;
+  }
+
+  .gallery-grid {
+    display: none;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 18px;
+  }
+
+  .gallery-card {
+    min-width: 0;
+    display: grid;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    color: inherit;
+    background: rgba(12, 15, 22, .72);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .18s ease, transform .18s ease, background .18s ease;
+  }
+
+  .gallery-card:hover {
+    border-color: var(--line-strong);
+    background: rgba(16, 20, 29, .88);
+    transform: translateY(-1px);
+  }
+
+  .gallery-preview {
+    position: relative;
+    aspect-ratio: 16 / 10;
+    background: #08080d;
+    overflow: hidden;
+  }
+
+  .gallery-preview iframe {
+    width: 100%;
+    height: 100%;
+    display: block;
+    border: 0;
+    background: #08080d;
+    pointer-events: none;
+  }
+
+  .gallery-meta {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: start;
+    padding: 13px 15px 14px;
+  }
+
+  .gallery-meta strong,
+  .gallery-meta span,
+  .gallery-meta p {
+    min-width: 0;
+  }
+
+  .gallery-meta strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 15px;
+  }
+
+  .gallery-meta p {
+    margin: 4px 0 0;
+    display: -webkit-box;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.4;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .gallery-meta .num {
+    color: var(--faint);
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  body.view-all .stage {
+    display: none;
+  }
+
+  body.view-all .gallery-grid {
+    display: grid;
+  }
+
+  body.view-all .open-link,
+  body.view-all .pager {
+    display: none;
+  }
+
+  body.view-all .controls {
+    grid-template-columns: 1fr;
+    order: 1;
+    position: sticky;
+    top: 16px;
+    z-index: 5;
+  }
+
+  body.view-all .statebar {
+    justify-content: flex-start;
+  }
+
+  body.view-all .gallery-grid {
+    order: 2;
+  }
+
+  .controls {
+    display: grid;
+    grid-template-columns: minmax(260px, 390px) minmax(0, 1fr);
+    gap: 14px;
+    align-items: center;
+    padding-bottom: 6px;
+  }
+
+  .pager,
+  .statebar {
+    min-height: 56px;
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(12, 15, 22, .82);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  .pager {
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px;
+  }
+
+  .icon-button {
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 8px;
+    color: var(--text);
+    background: rgba(255, 255, 255, .06);
+    cursor: pointer;
+    transition: background .18s ease, transform .18s ease;
+  }
+
+  .icon-button:hover {
+    background: rgba(255, 255, 255, .1);
+  }
+
+  .icon-button:active {
+    transform: translateY(1px);
+  }
+
+  .icon-button svg {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+  }
+
+  .pager-title {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+    text-align: center;
+  }
+
+  .pager-title strong,
+  .pager-title span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pager-title strong {
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .pager-title span {
+    color: var(--faint);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .statebar {
+    gap: 6px;
+    justify-content: flex-end;
+    padding: 7px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .statebar::-webkit-scrollbar { display: none; }
+
+  .state-button {
+    flex: 0 0 auto;
+    min-width: 88px;
+    height: 42px;
+    padding: 0 14px;
+    border-radius: 8px;
+    color: var(--muted);
+    background: transparent;
+    cursor: pointer;
+    transition: color .18s ease, background .18s ease;
+  }
+
+  .state-button:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, .045);
+  }
+
+  .state-button.active {
+    color: #061016;
+    background: var(--accent);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  @media (max-width: 980px) {
+    .app {
+      grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+      position: static;
+      height: auto;
+      padding: 22px 18px 16px;
+      border-right: 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand p:last-child {
+      max-width: 680px;
+    }
+
+    .animation-list {
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(178px, 220px);
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 6px;
+    }
+
+    .animation-button {
+      grid-template-columns: 34px minmax(0, 1fr);
+      min-height: 54px;
+    }
+
+    .animation-button .num {
+      width: 34px;
+      height: 34px;
+    }
+
+    .main {
+      min-height: calc(100vh - 252px);
+      padding: 20px 18px;
+    }
+
+    .topbar {
+      min-height: 0;
+      align-items: flex-start;
+    }
+
+    .top-actions {
+      align-items: flex-start;
+    }
+
+    .stage {
+      min-height: min(62vh, 560px);
+    }
+
+    .controls {
+      grid-template-columns: 1fr;
+    }
+
+    body.view-all .controls {
+      top: 10px;
+    }
+
+    .statebar {
+      justify-content: flex-start;
+    }
+  }
+
+  @media (max-width: 620px) {
+    .sidebar {
+      gap: 10px;
+      padding: 14px 12px 10px;
+    }
+
+    .eyebrow {
+      display: none;
+    }
+
+    h1 {
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    .brand p:last-child {
+      display: none;
+    }
+
+    .main {
+      gap: 12px;
+      padding: 14px 12px;
+    }
+
+    .topbar {
+      display: grid;
+      gap: 10px;
+    }
+
+    .top-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+      justify-content: stretch;
+    }
+
+    .view-toggle {
+      width: 100%;
+    }
+
+    .view-button {
+      flex: 1 1 0;
+    }
+
+    h2 {
+      margin-top: 6px;
+      font-size: clamp(32px, 10vw, 46px);
+      line-height: .95;
+    }
+
+    .description {
+      margin-top: 9px;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .open-link {
+      width: 100%;
+      min-height: 38px;
+    }
+
+    .stage {
+      min-height: clamp(280px, 40vh, 340px);
+    }
+
+    .gallery-grid {
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .state-button {
+      min-width: 78px;
+      padding: 0 12px;
+    }
+  }
 </style>
 </head>
 <body>
-<header>
-  <h1>Voice Agent Animations</h1>
-  <p>Lightweight, GPU-friendly status animations for a voice assistant.
-     Previews auto-cycle idle &rarr; listening &rarr; working &rarr; speaking every 4 seconds, or use the
-     floating switch below to pin every preview to one state at once.
-     Click a card to open it full-screen and drive the states yourself (buttons, keys 1&ndash;4, or click to cycle).</p>
-</header>
-<main class="grid">
-  <a class="card" href="01-aurora-orb/">
-    <div class="preview"><iframe src="01-aurora-orb/?embed" loading="lazy" title="Aurora Orb"></iframe></div>
-    <div class="meta">
-      <div class="left"><h2>Aurora Orb</h2><p>WebGL shader orb with flowing aurora color fields — the most Siri-like.</p></div>
-      <span class="num">01</span>
+<div class="app">
+  <aside class="sidebar" aria-label="Animation picker">
+    <div class="brand">
+      <p class="eyebrow">Preview Lab</p>
+      <h1>Voice Agent Animations</h1>
+      <p>Lightweight status visuals for idle, listening, working, and speaking states.</p>
     </div>
-  </a>
-  <a class="card" href="02-waveform-bars/">
-    <div class="preview"><iframe src="02-waveform-bars/?embed" loading="lazy" title="Waveform Bars"></iframe></div>
-    <div class="meta">
-      <div class="left"><h2>Waveform Bars</h2><p>Classic equalizer bars, transform-only animation. Dots when idle, speech bounce when talking.</p></div>
-      <span class="num">02</span>
-    </div>
-  </a>
-  <a class="card" href="03-particle-halo/">
-    <div class="preview"><iframe src="03-particle-halo/?embed" loading="lazy" title="Particle Halo"></iframe></div>
-    <div class="meta">
-      <div class="left"><h2>Particle Halo</h2><p>Orbiting particle ring that tightens to listen and radiates pulses to speak.</p></div>
-      <span class="num">03</span>
-    </div>
-  </a>
-  <a class="card" href="03b-halo-comets/">
-    <div class="preview"><iframe src="03b-halo-comets/?embed" loading="lazy" title="Halo Comets"></iframe></div>
-    <div class="meta">
-      <div class="left"><h2>Halo Comets</h2><p>Particle Halo variation: strong ring breathing to listen, streaking comet tails to speak.</p></div>
-      <span class="num">03b</span>
-    </div>
-  </a>
-  <a class="card" href="03c-halo-equalizer/">
-    <div class="preview"><iframe src="03c-halo-equalizer/?embed" loading="lazy" title="Halo Equalizer"></iframe></div>
-    <div class="meta">
-      <div class="left"><h2>Halo Equalizer</h2><p>Particle Halo variation: rolling ring waveform to listen, radial equalizer spokes to speak.</p></div>
-      <span class="num">03c</span>
-    </div>
-  </a>
-  <a class="card" href="03d-halo-supernova/">
-    <div class="preview"><iframe src="03d-halo-supernova/?embed" loading="lazy" title="Halo Supernova"></iframe></div>
-    <div class="meta">
-      <div class="left"><h2>Halo Supernova</h2><p>Particle Halo variation: inward particle streams to listen, dual rings with shockwave bursts to speak.</p></div>
-      <span class="num">03d</span>
-    </div>
-  </a>
-  <a class="card" href="03e-halo-fusion/">
-    <div class="preview"><iframe src="03e-halo-fusion/?embed" loading="lazy" title="Halo Fusion"></iframe></div>
-    <div class="meta">
-      <div class="left"><h2>Halo Fusion</h2><p>Comets and Equalizer combined: comet-tail orbit while working, radial spokes while speaking.</p></div>
-      <span class="num">03e</span>
-    </div>
-  </a>
-  <a class="card" href="04-ripple-rings/">
-    <div class="preview"><iframe src="04-ripple-rings/?embed" loading="lazy" title="Ripple Rings"></iframe></div>
-    <div class="meta">
-      <div class="left"><h2>Ripple Rings</h2><p>Concentric ripples: rings collapse inward when listening, burst outward when speaking.</p></div>
-      <span class="num">04</span>
-    </div>
-  </a>
-  <a class="card" href="05-metaball-blob/">
-    <div class="preview"><iframe src="05-metaball-blob/?embed" loading="lazy" title="Morphing Blob"></iframe></div>
-    <div class="meta">
-      <div class="left"><h2>Morphing Blob</h2><p>Organic liquid droplet that trembles to incoming sound and surges while talking.</p></div>
-      <span class="num">05</span>
-    </div>
-  </a>
-  <a class="card" href="06-liquid-gradient/">
-    <div class="preview"><iframe src="06-liquid-gradient/?embed" loading="lazy" title="Liquid Gradient"></iframe></div>
-    <div class="meta">
-      <div class="left"><h2>Liquid Gradient</h2><p>Pure-CSS swirling gradient orb — zero JavaScript per frame.</p></div>
-      <span class="num">06</span>
-    </div>
-  </a>
-  <a class="card" href="07-dot-matrix/">
-    <div class="preview"><iframe src="07-dot-matrix/?embed" loading="lazy" title="Dot Matrix"></iframe></div>
-    <div class="meta">
-      <div class="left"><h2>Dot Matrix</h2><p>Speaker-grille dot lattice: brightness waves flow inward to listen, outward to speak.</p></div>
-      <span class="num">07</span>
-    </div>
-  </a>
-  <a class="card" href="08-oscilloscope-line/">
-    <div class="preview"><iframe src="08-oscilloscope-line/?embed" loading="lazy" title="Oscilloscope Line"></iframe></div>
-    <div class="meta">
-      <div class="left"><h2>Oscilloscope Line</h2><p>Google-Assistant-style luminous waveform line with speech-cadence surges.</p></div>
-      <span class="num">08</span>
-    </div>
-  </a>
-  <a class="card" href="09-arc-ring/">
-    <div class="preview"><iframe src="09-arc-ring/?embed" loading="lazy" title="Arc Ring"></iframe></div>
-    <div class="meta">
-      <div class="left"><h2>Arc Ring</h2><p>Concentric orbital arcs whose lengths and speeds dance with the voice.</p></div>
-      <span class="num">09</span>
-    </div>
-  </a>
-  <a class="card" href="10-nebula-cloud/">
-    <div class="preview"><iframe src="10-nebula-cloud/?embed" loading="lazy" title="Nebula Cloud"></iframe></div>
-    <div class="meta">
-      <div class="left"><h2>Nebula Cloud</h2><p>Pseudo-3D particle sphere that condenses to listen and pulses radially to speak.</p></div>
-      <span class="num">10</span>
-    </div>
-  </a>
-</main>
-<nav class="statebar" aria-label="Set state for all previews">
-  <button data-state="auto" class="active">Auto</button>
-  <button data-state="idle">Idle</button>
-  <button data-state="listening">Listening</button>
-  <button data-state="working">Working</button>
-  <button data-state="speaking">Speaking</button>
-</nav>
-<script>
-  const bar = document.querySelector('.statebar')
-  const frames = [...document.querySelectorAll('iframe')]
-  let current = 'auto'
+    <nav class="animation-list" id="animationList" aria-label="Animations"></nav>
+  </aside>
 
-  function send(frame, state) {
-    if (frame.contentWindow) frame.contentWindow.postMessage({ type: 'voice-state', state }, '*')
+  <main class="main">
+    <div class="topbar">
+      <div class="meta">
+        <div class="kicker" id="animationIndex">01 / 14</div>
+        <h2 id="animationTitle">Aurora Orb</h2>
+        <p class="description" id="animationDescription">WebGL shader orb with flowing aurora color fields.</p>
+      </div>
+      <div class="top-actions">
+        <div class="view-toggle" id="viewToggle" role="group" aria-label="Preview layout">
+          <button class="view-button active" type="button" data-view="focus">Focus</button>
+          <button class="view-button" type="button" data-view="all">All</button>
+        </div>
+        <a class="open-link" id="openLink" href="01-aurora-orb/">Open full screen</a>
+      </div>
+    </div>
+
+    <section class="stage" aria-label="Animation preview">
+      <iframe id="previewFrame" src="01-aurora-orb/?embed" title="Aurora Orb preview"></iframe>
+    </section>
+
+    <section class="gallery-grid" id="galleryGrid" aria-label="All animation previews"></section>
+
+    <div class="controls">
+      <div class="pager" aria-label="Animation navigation">
+        <button class="icon-button" id="prevButton" type="button" aria-label="Previous animation">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div class="pager-title" aria-live="polite">
+          <strong id="pagerTitle">Aurora Orb</strong>
+          <span id="pagerCount">01 of 14</span>
+        </div>
+        <button class="icon-button" id="nextButton" type="button" aria-label="Next animation">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+
+      <nav class="statebar" id="statebar" aria-label="Preview state">
+        <button class="state-button active" type="button" data-state="auto">Auto</button>
+        <button class="state-button" type="button" data-state="idle">Idle</button>
+        <button class="state-button" type="button" data-state="listening">Listening</button>
+        <button class="state-button" type="button" data-state="working">Working</button>
+        <button class="state-button" type="button" data-state="speaking">Speaking</button>
+      </nav>
+    </div>
+  </main>
+</div>
+
+<noscript>
+  <p class="sr-only">JavaScript is required for the interactive preview.</p>
+</noscript>
+
+<script>
+  const animations = [
+    {
+      id: '01-aurora-orb',
+      number: '01',
+      title: 'Aurora Orb',
+      short: 'Siri-like shader orb',
+      description: 'WebGL shader orb with flowing aurora color fields and a soft luminous rim.',
+      accent: '#67e8f9',
+      accentSoft: 'rgba(103, 232, 249, .16)'
+    },
+    {
+      id: '02-waveform-bars',
+      number: '02',
+      title: 'Waveform Bars',
+      short: 'Equalizer bars',
+      description: 'Classic equalizer bars with dot idle, listening bounce, and speech cadence motion.',
+      accent: '#9ee493',
+      accentSoft: 'rgba(158, 228, 147, .16)'
+    },
+    {
+      id: '03-particle-halo',
+      number: '03',
+      title: 'Particle Halo',
+      short: 'Orbiting particle ring',
+      description: 'Orbiting particle ring that tightens while listening and radiates pulses while speaking.',
+      accent: '#8fb3ff',
+      accentSoft: 'rgba(143, 179, 255, .16)'
+    },
+    {
+      id: '03b-halo-comets',
+      number: '03b',
+      title: 'Halo Comets',
+      short: 'Comet-tail halo',
+      description: 'A stronger halo variation with ring breathing, fast working motion, and streaking comet tails.',
+      accent: '#ffbd7a',
+      accentSoft: 'rgba(255, 189, 122, .16)'
+    },
+    {
+      id: '03c-halo-equalizer',
+      number: '03c',
+      title: 'Halo Equalizer',
+      short: 'Radial voice spokes',
+      description: 'A rolling ring waveform for listening that expands into radial equalizer spokes for speech.',
+      accent: '#73d6ff',
+      accentSoft: 'rgba(115, 214, 255, .16)'
+    },
+    {
+      id: '03d-halo-supernova',
+      number: '03d',
+      title: 'Halo Supernova',
+      short: 'Dual ring bursts',
+      description: 'Inward particle streams for listening, then dual rings with shockwave bursts while speaking.',
+      accent: '#ff7aa8',
+      accentSoft: 'rgba(255, 122, 168, .16)'
+    },
+    {
+      id: '03e-halo-fusion',
+      number: '03e',
+      title: 'Halo Fusion',
+      short: 'Comets plus spokes',
+      description: 'Comet-tail orbit while working, radial equalizer spokes while speaking, and a concentrated core.',
+      accent: '#7de3ff',
+      accentSoft: 'rgba(125, 227, 255, .16)'
+    },
+    {
+      id: '04-ripple-rings',
+      number: '04',
+      title: 'Ripple Rings',
+      short: 'Concentric ripples',
+      description: 'Concentric rings collapse inward during listening and burst outward during speech.',
+      accent: '#b7f06f',
+      accentSoft: 'rgba(183, 240, 111, .16)'
+    },
+    {
+      id: '05-metaball-blob',
+      number: '05',
+      title: 'Morphing Blob',
+      short: 'Organic liquid form',
+      description: 'Liquid droplet motion with subtle idle drift, mic tremble, and speaking surges.',
+      accent: '#a78bfa',
+      accentSoft: 'rgba(167, 139, 250, .17)'
+    },
+    {
+      id: '06-liquid-gradient',
+      number: '06',
+      title: 'Liquid Gradient',
+      short: 'Pure CSS orb',
+      description: 'A zero JavaScript per-frame gradient orb with smooth liquid color movement.',
+      accent: '#f89f6f',
+      accentSoft: 'rgba(248, 159, 111, .16)'
+    },
+    {
+      id: '07-dot-matrix',
+      number: '07',
+      title: 'Dot Matrix',
+      short: 'Speaker grille field',
+      description: 'A dot lattice that sends brightness waves inward to listen and outward to speak.',
+      accent: '#77dbc1',
+      accentSoft: 'rgba(119, 219, 193, .16)'
+    },
+    {
+      id: '08-oscilloscope-line',
+      number: '08',
+      title: 'Oscilloscope Line',
+      short: 'Luminous waveform',
+      description: 'A clean assistant-style waveform line with voice-like surges and pauses.',
+      accent: '#f7d56b',
+      accentSoft: 'rgba(247, 213, 107, .16)'
+    },
+    {
+      id: '09-arc-ring',
+      number: '09',
+      title: 'Arc Ring',
+      short: 'Orbital arcs',
+      description: 'Concentric orbital arcs whose lengths, speeds, and glow respond to each state.',
+      accent: '#8ad2ff',
+      accentSoft: 'rgba(138, 210, 255, .16)'
+    },
+    {
+      id: '10-nebula-cloud',
+      number: '10',
+      title: 'Nebula Cloud',
+      short: 'Particle sphere',
+      description: 'Pseudo-3D particle cloud that condenses to listen and pulses radially to speak.',
+      accent: '#d28dff',
+      accentSoft: 'rgba(210, 141, 255, .16)'
+    }
+  ]
+
+  const list = document.getElementById('animationList')
+  const frame = document.getElementById('previewFrame')
+  const title = document.getElementById('animationTitle')
+  const description = document.getElementById('animationDescription')
+  const indexText = document.getElementById('animationIndex')
+  const openLink = document.getElementById('openLink')
+  const viewToggle = document.getElementById('viewToggle')
+  const viewButtons = [...viewToggle.querySelectorAll('button')]
+  const galleryGrid = document.getElementById('galleryGrid')
+  const pagerTitle = document.getElementById('pagerTitle')
+  const pagerCount = document.getElementById('pagerCount')
+  const prevButton = document.getElementById('prevButton')
+  const nextButton = document.getElementById('nextButton')
+  const statebar = document.getElementById('statebar')
+  const stateButtons = [...statebar.querySelectorAll('button')]
+
+  let selected = getInitialIndex()
+  let viewMode = getInitialView()
+  let currentState = 'auto'
+  let galleryBuilt = false
+
+  function padIndex(index) {
+    return String(index + 1).padStart(2, '0')
   }
 
-  bar.addEventListener('click', (e) => {
-    const btn = e.target.closest('button')
-    if (!btn) return
-    current = btn.dataset.state
-    for (const b of bar.children) b.classList.toggle('active', b === btn)
-    frames.forEach((f) => send(f, current))
+  function getHash() {
+    return decodeURIComponent(location.hash.replace(/^#/, ''))
+  }
+
+  function getInitialView() {
+    return getHash() === 'all' ? 'all' : 'focus'
+  }
+
+  function getInitialIndex() {
+    const hash = getHash()
+    const found = animations.findIndex(item => item.id === hash)
+    return found >= 0 ? found : 0
+  }
+
+  function previewFrames() {
+    return [frame, ...galleryGrid.querySelectorAll('iframe')]
+  }
+
+  function sendState(state) {
+    for (const preview of previewFrames()) {
+      if (preview.contentWindow) {
+        preview.contentWindow.postMessage({ type: 'voice-state', state }, '*')
+      }
+    }
+  }
+
+  function setState(next) {
+    currentState = next
+    for (const button of stateButtons) {
+      button.classList.toggle('active', button.dataset.state === next)
+    }
+    sendState(next)
+  }
+
+  function updateChrome() {
+    const item = animations[selected]
+    const count = `${padIndex(selected)} of ${animations.length}`
+
+    document.documentElement.style.setProperty('--accent', item.accent)
+    document.documentElement.style.setProperty('--accent-soft', item.accentSoft)
+
+    if (viewMode === 'all') {
+      document.title = 'All Animations | Voice Agent Animations'
+      title.textContent = 'All Animations'
+      description.textContent = 'Compare every voice agent status animation at once, then pin all previews to a shared state below.'
+      indexText.textContent = `All / ${animations.length}`
+    } else {
+      document.title = `${item.title} | Voice Agent Animations`
+      title.textContent = item.title
+      description.textContent = item.description
+      indexText.textContent = `${item.number} / ${animations.length}`
+    }
+
+    pagerTitle.textContent = item.title
+    pagerCount.textContent = count
+    openLink.href = `${item.id}/`
+    frame.title = `${item.title} preview`
+  }
+
+  function setAnimation(index, options = {}) {
+    selected = (index + animations.length) % animations.length
+    const item = animations[selected]
+
+    updateChrome()
+
+    for (const button of list.querySelectorAll('button')) {
+      const active = Number(button.dataset.index) === selected
+      button.classList.toggle('active', active)
+      button.setAttribute('aria-current', active ? 'true' : 'false')
+      if (active && options.scroll !== false) {
+        button.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      }
+    }
+
+    const nextSrc = `${item.id}/?embed`
+    if (!frame.src.endsWith(nextSrc)) {
+      frame.src = nextSrc
+    } else {
+      sendState(currentState)
+    }
+
+    if (options.hash !== false) {
+      history.replaceState(null, '', viewMode === 'all' ? '#all' : `#${item.id}`)
+    }
+  }
+
+  function setView(next, options = {}) {
+    viewMode = next === 'all' ? 'all' : 'focus'
+    document.body.classList.toggle('view-all', viewMode === 'all')
+    for (const button of viewButtons) {
+      const active = button.dataset.view === viewMode
+      button.classList.toggle('active', active)
+      button.setAttribute('aria-pressed', active ? 'true' : 'false')
+    }
+
+    if (viewMode === 'all') {
+      buildGallery()
+      sendState(currentState)
+    } else {
+      sendState(currentState)
+    }
+
+    updateChrome()
+
+    if (options.hash !== false) {
+      history.replaceState(null, '', viewMode === 'all' ? '#all' : `#${animations[selected].id}`)
+    }
+  }
+
+  function buildList() {
+    const fragment = document.createDocumentFragment()
+    animations.forEach((item, index) => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'animation-button'
+      button.dataset.index = index
+      button.innerHTML = `
+        <span class="num">${item.number}</span>
+        <span>
+          <strong>${item.title}</strong>
+          <span>${item.short}</span>
+        </span>
+      `
+      button.addEventListener('click', () => {
+        setView('focus', { hash: false })
+        setAnimation(index)
+      })
+      fragment.append(button)
+    })
+    list.append(fragment)
+  }
+
+  function buildGallery() {
+    if (galleryBuilt) return
+    const fragment = document.createDocumentFragment()
+    animations.forEach((item, index) => {
+      const card = document.createElement('article')
+      card.className = 'gallery-card'
+      card.dataset.index = index
+      card.tabIndex = 0
+      card.setAttribute('role', 'button')
+      card.setAttribute('aria-label', `Focus ${item.title}`)
+      card.innerHTML = `
+        <div class="gallery-preview">
+          <iframe src="${item.id}/?embed" loading="lazy" title="${item.title} preview" data-gallery-index="${index}"></iframe>
+        </div>
+        <div class="gallery-meta">
+          <span>
+            <strong>${item.title}</strong>
+            <p>${item.description}</p>
+          </span>
+          <span class="num">${item.number}</span>
+        </div>
+      `
+      card.addEventListener('click', () => {
+        setView('focus', { hash: false })
+        setAnimation(index)
+      })
+      card.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        event.preventDefault()
+        setView('focus', { hash: false })
+        setAnimation(index)
+      })
+      const preview = card.querySelector('iframe')
+      preview.addEventListener('load', () => {
+        preview.contentWindow.postMessage({ type: 'voice-state', state: currentState }, '*')
+      })
+      fragment.append(card)
+    })
+    galleryGrid.append(fragment)
+    galleryBuilt = true
+  }
+
+  prevButton.addEventListener('click', () => setAnimation(selected - 1))
+  nextButton.addEventListener('click', () => setAnimation(selected + 1))
+
+  viewToggle.addEventListener('click', event => {
+    const button = event.target.closest('button')
+    if (!button) return
+    setView(button.dataset.view)
   })
 
-  // Lazy-loaded iframes miss broadcasts sent before they exist; sync them on load
-  frames.forEach((f) => {
-    f.addEventListener('load', () => {
-      if (current !== 'auto') send(f, current)
-    })
+  statebar.addEventListener('click', event => {
+    const button = event.target.closest('button')
+    if (!button) return
+    setState(button.dataset.state)
   })
+
+  frame.addEventListener('load', () => {
+    sendState(currentState)
+  })
+
+  addEventListener('keydown', event => {
+    if (event.target.closest('button, a, input, textarea, select')) return
+    if (event.key.toLowerCase() === 'g') setView(viewMode === 'all' ? 'focus' : 'all')
+    if (event.key === 'ArrowLeft') setAnimation(selected - 1)
+    if (event.key === 'ArrowRight') setAnimation(selected + 1)
+  })
+
+  addEventListener('hashchange', () => {
+    if (getHash() === 'all') {
+      setView('all', { hash: false })
+      return
+    }
+
+    const next = getInitialIndex()
+    setView('focus', { hash: false })
+    if (next !== selected) setAnimation(next, { hash: false })
+  })
+
+  buildList()
+  setAnimation(selected, { scroll: false, hash: location.hash.length > 1 })
+  setView(viewMode, { hash: location.hash.length > 1 })
 </script>
 </body>
 </html>
