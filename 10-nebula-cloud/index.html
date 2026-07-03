@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nebula Cloud — Voice Agent Animation</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #08080d; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; cursor: pointer; }
+  header {
+    position: fixed; top: 16px; left: 18px;
+    font: 13px/1.6 system-ui, sans-serif; color: rgba(255,255,255,.6);
+    pointer-events: none;
+  }
+  header a {
+    display: block; color: rgba(255,255,255,.6); text-decoration: none;
+    pointer-events: auto; transition: color .2s ease;
+  }
+  header a:hover { color: rgba(255,255,255,.95); }
+  .controls {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px;
+  }
+  .controls button {
+    font: 13px system-ui, sans-serif; color: rgba(255,255,255,.65);
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14);
+    border-radius: 999px; padding: 8px 20px; cursor: pointer;
+    transition: color .25s ease, background .25s ease, border-color .25s ease, box-shadow .25s ease;
+  }
+  .controls button:hover { background: rgba(255,255,255,.12); }
+  .controls button.active {
+    color: #dcf3ff; background: rgba(110,190,255,.16);
+    border-color: rgba(110,190,255,.55); box-shadow: 0 0 16px rgba(110,190,255,.25);
+  }
+  body.embed header, body.embed .controls { display: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<header>
+  <a href="../">&larr; Gallery</a>
+  <span>Nebula Cloud</span>
+</header>
+<nav class="controls">
+  <button data-state="idle">Idle</button>
+  <button data-state="listening">Listening</button>
+  <button data-state="working">Working</button>
+  <button data-state="speaking">Speaking</button>
+</nav>
+<script>
+'use strict'
+
+const canvas = document.getElementById('c')
+const ctx = canvas.getContext('2d')
+
+// ---- point cloud (all preallocated, zero allocations per frame) ----
+const N = 400
+const bx = new Float32Array(N), by = new Float32Array(N), bz = new Float32Array(N)
+const disp = new Float32Array(N), vel = new Float32Array(N)
+const gain = new Float32Array(N), springK = new Float32Array(N), springC = new Float32Array(N)
+const szf = new Float32Array(N), twF = new Float32Array(N), twP = new Float32Array(N)
+const alphaR = new Float32Array(N)
+const spriteIdx = new Uint8Array(N)
+
+for (let i = 0; i < N; i++) {
+  // uniform direction on the sphere + cbrt radius = uniform density inside the ball
+  const u = Math.random() * 2 - 1
+  const a = Math.random() * Math.PI * 2
+  const s = Math.sqrt(1 - u * u)
+  const r = Math.cbrt(Math.random())
+  bx[i] = s * Math.cos(a) * r
+  by[i] = u * r
+  bz[i] = s * Math.sin(a) * r
+  // per-point spring variation desynchronizes pulses so bursts feel organic
+  gain[i] = 0.6 + 0.8 * Math.random()
+  springK[i] = 45 + 55 * Math.random()
+  springC[i] = 2 * Math.sqrt(springK[i]) * 0.33 // under-damped: visible spring-back
+  const q = Math.random()
+  szf[i] = 0.014 + 0.03 * q * q
+  twF[i] = 2 + 9 * Math.random()
+  twP[i] = Math.random() * Math.PI * 2
+  alphaR[i] = 0.55 + 0.45 * Math.random()
+  spriteIdx[i] = Math.min(15, r * 16) | 0
+}
+
+// working-state targets: points organize into a thin two-armed spiral galaxy
+const gx = new Float32Array(N), gy = new Float32Array(N), gz = new Float32Array(N)
+for (let i = 0; i < N; i++) {
+  const r = Math.sqrt(bx[i] * bx[i] + by[i] * by[i] + bz[i] * bz[i])
+  const ang = (i & 1) * Math.PI + r * 2.9 + (Math.random() - 0.5) * 0.45
+  gx[i] = Math.cos(ang) * r
+  gz[i] = Math.sin(ang) * r
+  gy[i] = by[i] * (0.08 + 0.5 * (1 - r)) // thin disc with a soft central bulge
+}
+
+// ---- pre-rendered soft sprites tinted along the nebula palette ----
+// indigo core -> cyan mids -> warm magenta rim, keyed by radius from center
+function palette(t) {
+  const lerp = (a, b, k) => (a + (b - a) * k) | 0
+  if (t < 0.55) {
+    const k = t / 0.55
+    return [lerp(72, 70, k), lerp(50, 195, k), lerp(185, 255, k)]
+  }
+  const k = (t - 0.55) / 0.45
+  return [lerp(70, 255, k), lerp(195, 105, k), lerp(255, 215, k)]
+}
+// focused cool palette for listening: deep blue core to bright icy cyan rim
+function coolPalette(t) {
+  const lerp = (a, b, k) => (a + (b - a) * k) | 0
+  return [lerp(80, 175, t), lerp(160, 245, t), 255]
+}
+function makeSprite(c) {
+  const s = document.createElement('canvas')
+  s.width = s.height = 64
+  const g = s.getContext('2d')
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32)
+  grad.addColorStop(0, 'rgba(255,255,255,.9)')
+  grad.addColorStop(0.18, 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',.65)')
+  grad.addColorStop(0.5, 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',.2)')
+  grad.addColorStop(1, 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',0)')
+  g.fillStyle = grad
+  g.fillRect(0, 0, 64, 64)
+  return s
+}
+const sprites = []
+const coolSprites = []
+for (let i = 0; i < 16; i++) {
+  sprites.push(makeSprite(palette(i / 15)))
+  coolSprites.push(makeSprite(coolPalette(i / 15)))
+}
+const glow = makeSprite(palette(0.3))
+const coreGlow = makeSprite([110, 215, 255])
+const streak = makeSprite([190, 240, 255])
+
+// ---- ambient motes that stream inward while listening (the "absorbing" cue) ----
+const M = 90
+const fx = new Float32Array(M), fy = new Float32Array(M), fz = new Float32Array(M)
+const fd = new Float32Array(M), fs = new Float32Array(M), fb = new Float32Array(M)
+function respawnMote(i) {
+  const u = Math.random() * 2 - 1
+  const a = Math.random() * Math.PI * 2
+  const s = Math.sqrt(1 - u * u)
+  fx[i] = s * Math.cos(a)
+  fy[i] = u
+  fz[i] = s * Math.sin(a)
+  fd[i] = 1.7 + Math.random() * 0.8
+  fs[i] = 0.75 + 0.75 * Math.random()
+  fb[i] = 0.6 + 0.4 * Math.random()
+}
+for (let i = 0; i < M; i++) {
+  respawnMote(i)
+  fd[i] = 0.85 + Math.random() * 1.65 // pre-scatter along the full inbound path
+}
+
+// ---- states ----
+const STATES = ['idle', 'listening', 'working', 'speaking']
+const CFG = {
+  idle:      { radius: 1.0,  speed: 0.05, bright: 0.4,  boost: 0.0,  amp: 0.0  },
+  listening: { radius: 0.7,  speed: 0.13, bright: 0.8,  boost: 0.35, amp: 0.1  },
+  working:   { radius: 1.0,  speed: 0.45, bright: 0.6,  boost: 0.0,  amp: 0.0  },
+  speaking:  { radius: 1.0,  speed: 0.36, bright: 1.0,  boost: 0.6,  amp: 0.52 }
+}
+let state = 'idle'
+let radCur = 1, speedCur = 0.05, brightCur = 0.4, boostCur = 0, ampCur = 0
+let envLevel = 0
+// crossfade weight for listening-only visuals: cool palette, motes, core glow
+let wListen = 0
+// morph weight for working: sphere-to-galaxy blend and fixed viewing tilt
+let wWork = 0
+
+// speech gate: random bursts and pauses, with occasional longer word gaps
+let burstT = 0, burstLevel = 0
+function stepBursts(dt) {
+  burstT -= dt
+  if (burstT <= 0) {
+    if (burstLevel > 0) {
+      burstLevel = 0
+      burstT = 0.05 + 0.25 * Math.random() + (Math.random() < 0.18 ? 0.45 : 0)
+    } else {
+      burstLevel = 0.55 + 0.45 * Math.random()
+      burstT = 0.08 + 0.22 * Math.random()
+    }
+  }
+}
+
+// ---- UI ----
+const buttons = document.querySelectorAll('.controls button')
+function setState(next) {
+  state = next
+  for (const b of buttons) b.classList.toggle('active', b.dataset.state === next)
+}
+for (const b of buttons) b.addEventListener('click', () => setState(b.dataset.state))
+canvas.addEventListener('click', () => setState(STATES[(STATES.indexOf(state) + 1) % 4]))
+addEventListener('keydown', e => {
+  const i = ['1', '2', '3', '4'].indexOf(e.key)
+  if (i >= 0) setState(STATES[i])
+})
+const EMBED = location.search.includes('embed')
+let cycleTimer = 0
+function startCycle() {
+  cycleTimer = setInterval(() => setState(STATES[(STATES.indexOf(state) + 1) % 4]), 4000)
+}
+if (EMBED) {
+  document.body.classList.add('embed')
+  startCycle()
+}
+// gallery protocol: pin every preview to one state, or resume auto-cycling
+addEventListener('message', e => {
+  const d = e.data
+  if (!d || d.type !== 'voice-state') return
+  if (STATES.includes(d.state)) {
+    clearInterval(cycleTimer)
+    cycleTimer = 0
+    setState(d.state)
+  } else if (d.state === 'auto' && EMBED && !cycleTimer) {
+    startCycle()
+  }
+})
+setState('idle')
+
+// ---- canvas sizing ----
+let W = 0, H = 0
+function resize() {
+  const dpr = Math.min(devicePixelRatio || 1, 2)
+  W = innerWidth
+  H = innerHeight
+  canvas.width = W * dpr
+  canvas.height = H * dpr
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+}
+addEventListener('resize', resize)
+resize()
+
+// ---- render loop ----
+const TWO_PI = Math.PI * 2
+let ry = 0, rx = 0.4
+let last = performance.now()
+let raf = 0
+
+function frame(now) {
+  raf = requestAnimationFrame(frame)
+  const dt = Math.min((now - last) / 1000, 0.05)
+  last = now
+  const t = now / 1000
+
+  const cfg = CFG[state]
+  const ease = 1 - Math.exp(-dt * 7) // ~0.5 s settle after a state change
+  radCur += (cfg.radius - radCur) * ease
+  speedCur += (cfg.speed - speedCur) * ease
+  brightCur += (cfg.bright - brightCur) * ease
+  boostCur += (cfg.boost - boostCur) * ease
+  ampCur += (cfg.amp - ampCur) * ease
+  wListen += ((state === 'listening' ? 1 : 0) - wListen) * ease
+  wWork += ((state === 'working' ? 1 : 0) - wWork) * ease
+
+  let raw = 0
+  if (state === 'listening') {
+    // fake mic level: one dominant slow wave reads as deliberate, rhythmic
+    // breathing, with a lighter shimmer on top so it stays organic
+    raw = 0.5 + 0.38 * Math.sin(t * 3.2) + 0.12 * Math.sin(t * 7.1 + 2.0)
+    if (raw < 0) raw = 0
+    else if (raw > 1) raw = 1
+  } else if (state === 'speaking') {
+    stepBursts(dt)
+    raw = burstLevel
+  }
+  // fast attack / slow release keeps speech pulses punchy yet organic
+  envLevel += (raw - envLevel) * (1 - Math.exp(-dt * (raw > envLevel ? 28 : 9)))
+
+  ry += speedCur * dt
+  rx += speedCur * 0.31 * dt * (1 - wWork)
+  // while working, steer the tilt to a fixed angle (via the shortest arc) so
+  // the galaxy disc is always seen at a clear, steady three-quarter view
+  let dTilt = (0.5 - rx) % TWO_PI
+  if (dTilt < -Math.PI) dTilt += TWO_PI
+  else if (dTilt > Math.PI) dTilt -= TWO_PI
+  rx += dTilt * wWork * (1 - Math.exp(-dt * 4))
+
+  const cy = Math.cos(ry), sy = Math.sin(ry)
+  const cx = Math.cos(rx), sx = Math.sin(rx)
+  const cxs = W / 2, cys = H / 2
+  const unit = Math.min(W, H)
+  const R = unit * 0.34
+  const F = 3.4
+
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.globalAlpha = 1
+  ctx.fillStyle = '#08080d'
+  ctx.fillRect(0, 0, W, H)
+  ctx.globalCompositeOperation = 'lighter'
+
+  const bright = Math.min(brightCur + boostCur * envLevel, 1.6)
+
+  // faint core haze behind the points sells the nebula depth
+  ctx.globalAlpha = 0.04 + 0.07 * Math.min(bright, 1)
+  const gs = unit * (0.75 + 0.15 * envLevel)
+  ctx.drawImage(glow, cxs - gs / 2, cys - gs / 2, gs, gs)
+
+  // listening breathes as a whole: the entire cloud swells and shrinks ~25%
+  // with the mic envelope, far beyond the per-point jitter of other states
+  const breathe = 1 + wListen * (envLevel - 0.5) * 0.55
+
+  if (wListen > 0.01) {
+    // focused attention core that brightens on each envelope peak
+    ctx.globalAlpha = wListen * (0.1 + 0.3 * envLevel)
+    const cs = unit * (0.26 + 0.14 * envLevel)
+    ctx.drawImage(coreGlow, cxs - cs / 2, cys - cs / 2, cs, cs)
+  }
+
+  const envAmp = envLevel * ampCur
+  for (let i = 0; i < N; i++) {
+    const tgt = envAmp * gain[i]
+    const acc = (tgt - disp[i]) * springK[i] - springC[i] * vel[i]
+    vel[i] += acc * dt
+    disp[i] += vel[i] * dt
+
+    const m = radCur * breathe * (1 + disp[i])
+    const X = (bx[i] + (gx[i] - bx[i]) * wWork) * m
+    const Y = (by[i] + (gy[i] - by[i]) * wWork) * m
+    const Z = (bz[i] + (gz[i] - bz[i]) * wWork) * m
+    const x1 = X * cy + Z * sy
+    const z1 = Z * cy - X * sy
+    const y2 = Y * cx - z1 * sx
+    const z2 = Y * sx + z1 * cx
+    const p = F / (F + z2)
+
+    let near = (p - 0.72) * 1.15 // maps the cloud's depth range roughly onto 0..1
+    if (near < 0) near = 0
+    else if (near > 1) near = 1
+    const tw = 0.8 + 0.2 * Math.sin(t * twF[i] + twP[i])
+    let a = bright * alphaR[i] * (0.2 + 0.8 * near * near) * tw
+    if (a > 1) a = 1
+
+    const s = szf[i] * unit * p * (1 + disp[i] * 0.6)
+    const px = cxs + x1 * p * R - s / 2
+    const py = cys + y2 * p * R - s / 2
+    // crossfade the whole cloud to the cool listening palette; outside the
+    // transition only one of the two draws runs
+    if (wListen < 0.99) {
+      ctx.globalAlpha = a * (1 - wListen)
+      ctx.drawImage(sprites[spriteIdx[i]], px, py, s, s)
+    }
+    if (wListen > 0.01) {
+      ctx.globalAlpha = a * wListen
+      ctx.drawImage(coolSprites[spriteIdx[i]], px, py, s, s)
+    }
+  }
+
+  if (wListen > 0.01) {
+    for (let i = 0; i < M; i++) {
+      // motes accelerate as they near the cloud, like being drawn in
+      fd[i] -= fs[i] * (0.5 + 0.7 / fd[i]) * dt
+      if (fd[i] < 0.8) respawnMote(i)
+      const ux0 = fx[i], uy0 = fy[i], uz0 = fz[i]
+      const ux = ux0 * cy + uz0 * sy
+      const uz1 = uz0 * cy - ux0 * sy
+      const uy = uy0 * cx - uz1 * sx
+      const uz = uy0 * sx + uz1 * cx
+      const d = fd[i]
+      let af = (2.5 - d) * 1.4 // fade in from the outer spawn shell
+      if (af > 1) af = 1
+      let ao = (d - 0.8) * 4 // fade out as the cloud absorbs them
+      if (ao > 1) ao = 1
+      const aa = wListen * af * ao * fb[i] * (0.4 + 0.6 * envLevel)
+      const sz = unit * 0.016
+      // comet streak: head plus two fading tail segments trailing outward
+      for (let k = 0; k < 3; k++) {
+        const dd = d + k * 0.09
+        const pp = F / (F + uz * dd)
+        const ss = sz * pp * (1 - k * 0.22)
+        const sxp = cxs + ux * dd * pp * R - ss / 2
+        const syp = cys + uy * dd * pp * R - ss / 2
+        ctx.globalAlpha = aa * (1 - k * 0.41)
+        ctx.drawImage(streak, sxp, syp, ss, ss)
+      }
+    }
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    cancelAnimationFrame(raf)
+  } else {
+    last = performance.now()
+    raf = requestAnimationFrame(frame)
+  }
+})
+raf = requestAnimationFrame(frame)
+</script>
+</body>
+</html>

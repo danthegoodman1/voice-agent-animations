@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Halo Supernova — Voice Agent Animation</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: #08080d;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  header {
+    position: fixed;
+    top: 20px;
+    left: 24px;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  header a {
+    color: rgba(255,255,255,.6);
+    text-decoration: none;
+    font-size: 13px;
+    transition: color .2s;
+  }
+  header a:hover { color: rgba(255,255,255,.95); }
+  header h1 {
+    color: rgba(255,255,255,.6);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: .04em;
+  }
+
+  nav {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    display: flex;
+    gap: 8px;
+    padding: 6px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.08);
+    backdrop-filter: blur(12px);
+  }
+  nav button {
+    appearance: none;
+    border: 1px solid transparent;
+    background: transparent;
+    color: rgba(255,255,255,.55);
+    font: 500 13px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 9px 18px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color .25s, background .25s, border-color .25s, box-shadow .25s;
+  }
+  nav button:hover { color: rgba(255,255,255,.85); }
+  nav button.active {
+    color: #d6f3ff;
+    background: rgba(110,200,255,.14);
+    border-color: rgba(110,200,255,.35);
+    box-shadow: 0 0 18px rgba(110,200,255,.18) inset;
+  }
+
+  body.embed header, body.embed nav { display: none; }
+</style>
+</head>
+<body>
+<canvas id="halo"></canvas>
+<header>
+  <a href="../">&larr; Gallery</a>
+  <h1>Halo Supernova</h1>
+</header>
+<nav id="controls">
+  <button data-state="idle" class="active">Idle</button>
+  <button data-state="listening">Listening</button>
+  <button data-state="working">Working</button>
+  <button data-state="speaking">Speaking</button>
+</nav>
+<script>
+'use strict'
+
+const canvas = document.getElementById('halo')
+const ctx = canvas.getContext('2d')
+const DPR = Math.min(2, window.devicePixelRatio || 1)
+
+let vw = 0, vh = 0, cx = 0, cy = 0, minDim = 0, edgeR = 0
+function resize() {
+  vw = window.innerWidth
+  vh = window.innerHeight
+  canvas.width = Math.round(vw * DPR)
+  canvas.height = Math.round(vh * DPR)
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
+  cx = vw / 2
+  cy = vh / 2
+  minDim = Math.min(vw, vh)
+  edgeR = 0.5 * Math.hypot(vw, vh)
+}
+window.addEventListener('resize', resize)
+resize()
+
+// Sprites are pre-rendered once; the frame loop only calls drawImage.
+function makeSprite(r, g, b) {
+  const c = document.createElement('canvas')
+  c.width = c.height = 64
+  const sc = c.getContext('2d')
+  const grad = sc.createRadialGradient(32, 32, 0, 32, 32, 32)
+  grad.addColorStop(0, 'rgba(255,255,255,.9)')
+  grad.addColorStop(0.18, 'rgba(' + r + ',' + g + ',' + b + ',.85)')
+  grad.addColorStop(0.5, 'rgba(' + r + ',' + g + ',' + b + ',.22)')
+  grad.addColorStop(1, 'rgba(' + r + ',' + g + ',' + b + ',0)')
+  sc.fillStyle = grad
+  sc.fillRect(0, 0, 64, 64)
+  return c
+}
+function makeCoreGlow() {
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const sc = c.getContext('2d')
+  const grad = sc.createRadialGradient(128, 128, 0, 128, 128, 128)
+  grad.addColorStop(0, 'rgba(120,170,255,.5)')
+  grad.addColorStop(0.4, 'rgba(95,115,235,.16)')
+  grad.addColorStop(1, 'rgba(90,110,230,0)')
+  sc.fillStyle = grad
+  sc.fillRect(0, 0, 256, 256)
+  return c
+}
+const sprites = [
+  makeSprite(125, 227, 255),  // cyan
+  makeSprite(128, 122, 255),  // indigo
+  makeSprite(255, 178, 110),  // warm accent
+  makeSprite(215, 240, 255),  // near-white hot, for shockwave ejecta
+]
+const coreGlow = makeCoreGlow()
+
+// ---- Ring particles. Even indices form the inner ring when speaking splits
+// the halo in two, odd indices the outer counter-rotating ring.
+const N = 200
+const angle     = new Float32Array(N)
+const baseSpeed = new Float32Array(N)  // rad/s at speed multiplier 1
+const radOff    = new Float32Array(N)  // -1..1 bell-shaped, scaled by spread
+const size      = new Float32Array(N)
+const baseAlpha = new Float32Array(N)
+const wobF      = new Float32Array(N)
+const wobA      = new Float32Array(N)
+const twF       = new Float32Array(N)
+const phase     = new Float32Array(N)
+const kickF     = new Float32Array(N)  // per-particle response to burst kicks
+const spriteIx  = new Uint8Array(N)
+
+for (let i = 0; i < N; i++) {
+  angle[i] = Math.random() * Math.PI * 2
+  baseSpeed[i] = 0.12 + Math.random() * 0.3
+  // sum of three uniforms gives a soft bell so the ring has a dense core with fuzzy edges
+  radOff[i] = (Math.random() + Math.random() + Math.random() - 1.5) / 1.5
+  size[i] = 4 + 11 * Math.pow(Math.random(), 2.2)
+  baseAlpha[i] = 0.45 + Math.random() * 0.55
+  wobF[i] = 0.4 + Math.random() * 0.9
+  wobA[i] = 2 + Math.random() * 5
+  twF[i] = 0.6 + Math.random() * 1.8
+  phase[i] = Math.random() * Math.PI * 2
+  kickF[i] = 0.3 + Math.random() * 1.1
+  const roll = Math.random()
+  spriteIx[i] = roll < 0.07 ? 2 : roll < 0.55 ? 0 : 1
+}
+
+// ---- Recycled pool shared by listening streamers and speaking ejecta.
+// Both live in polar coordinates around the canvas center.
+const P = 200
+const pMode    = new Uint8Array(P)     // 0 free, 1 inflow streamer, 2 shockwave ejecta
+const pRad     = new Float32Array(P)
+const pAng     = new Float32Array(P)
+const pRadV    = new Float32Array(P)   // px/s, negative = inward
+const pAngV    = new Float32Array(P)
+const pLife    = new Float32Array(P)
+const pMaxLife = new Float32Array(P)
+const pSize    = new Float32Array(P)
+const pSpr     = new Uint8Array(P)
+const freeStack = new Int32Array(P)
+let freeTop = P
+for (let i = 0; i < P; i++) freeStack[i] = i
+
+function poolAlloc() { return freeTop > 0 ? freeStack[--freeTop] : -1 }
+function poolFree(i) {
+  pMode[i] = 0
+  freeStack[freeTop++] = i
+}
+
+// ---- Expanding wavefront circles, fixed slots recycled oldest-first.
+const W = 6
+const F_LIFE = 0.85
+const fAge = new Float32Array(W)
+const fR0 = new Float32Array(W)
+const fSpeed = new Float32Array(W)
+const fStr = new Float32Array(W)
+fAge.fill(F_LIFE)
+
+// Physics targets per state; current values ease toward them over ~0.5s.
+// split blends between one ring (0) and two counter-rotating rings (1).
+// work blends in the radar sweep of the working state.
+const STATES = {
+  idle:      { r: 0.36, spread: 0.100, speed: 0.55, alpha: 0.34, core: 0.12, split: 0, work: 0 },
+  listening: { r: 0.24, spread: 0.035, speed: 1.20, alpha: 0.85, core: 0.35, split: 0, work: 0 },
+  working:   { r: 0.21, spread: 0.022, speed: 1.70, alpha: 0.60, core: 0.28, split: 0, work: 1 },
+  speaking:  { r: 0.28, spread: 0.030, speed: 2.60, alpha: 1.00, core: 0.50, split: 1, work: 0 },
+}
+const ORDER = ['idle', 'listening', 'working', 'speaking']
+let stateName = 'idle'
+let tgt = STATES.idle
+let curR = tgt.r, curSpread = tgt.spread, curSpeed = tgt.speed
+let curAlpha = tgt.alpha, curCore = tgt.core, curSplit = tgt.split, curWork = tgt.work
+
+// Envelope followers, kept smooth across state changes
+let radEnv = 0          // fractional ring radius modulation (±~0.22 when listening)
+let briEnv = 0          // brightness boost
+let pulse = 0           // speech burst follower, jolts the rings outward
+let flash = 0           // core detonation flash
+let armed = true        // shockwave trigger re-arm latch
+let spawnAcc = 0        // fractional streamer spawns carried between frames
+let sweepAng = 0        // radar sweep head angle for the working state
+let curRingR = STATES.idle.r * minDim
+
+// Layered sines as fake mic level: smooth, wandering, never periodic-looking
+function micEnv(t) {
+  const e = 0.5
+    + 0.30 * Math.sin(t * 1.7) * Math.sin(t * 0.61 + 1.3)
+    + 0.17 * Math.sin(t * 3.3 + 0.7)
+    + 0.09 * Math.sin(t * 5.1 + 2.2)
+  return e < 0 ? 0 : e > 1 ? 1 : e
+}
+// Speech: gated bursts with real pauses (product of slow sines goes negative ~half the time).
+// The 12.7 rad/s carrier re-crosses the trigger thresholds ~2x/s inside a sustained
+// burst, so rapid speech detonates overlapping shockwaves.
+function speechEnv(t) {
+  let g = Math.sin(t * 3.1) * Math.sin(t * 1.43 + 0.8) * Math.sin(t * 0.617 + 2.0)
+  g = g > 0.02 ? Math.min(1, (g - 0.02) * 2.6) : 0
+  const carrier = 0.6 + 0.4 * Math.sin(t * 12.7 + 2.5 * Math.sin(t * 3.9))
+  return g * carrier
+}
+
+function detonate(strength) {
+  // Overwrite the oldest wavefront slot
+  let slot = 0
+  for (let w = 1; w < W; w++) if (fAge[w] > fAge[slot]) slot = w
+  fAge[slot] = 0
+  fR0[slot] = curRingR
+  fSpeed[slot] = (0.50 + 0.25 * strength) * minDim
+  fStr[slot] = 0.55 + 0.45 * strength
+
+  flash = Math.min(1.25, flash + 0.55 + 0.45 * strength)
+
+  const count = (16 + 22 * strength) | 0
+  for (let n = 0; n < count; n++) {
+    const j = poolAlloc()
+    if (j < 0) break
+    pMode[j] = 2
+    pAng[j] = Math.random() * Math.PI * 2
+    pRad[j] = curRingR
+    // ejecta ride just behind/ahead of the wavefront circle
+    pRadV[j] = fSpeed[slot] * (0.85 + 0.3 * Math.random())
+    pAngV[j] = (Math.random() - 0.5) * 1.6
+    pLife[j] = pMaxLife[j] = 0.7 + 0.35 * Math.random()
+    pSize[j] = 4 + 8 * Math.random() * Math.random()
+    pSpr[j] = Math.random() < 0.6 ? 3 : 0
+  }
+}
+
+function spawnStreamer() {
+  const j = poolAlloc()
+  if (j < 0) return
+  pMode[j] = 1
+  pAng[j] = Math.random() * Math.PI * 2
+  pRad[j] = edgeR * (0.75 + 0.35 * Math.random())
+  pRadV[j] = -(0.28 + 0.22 * Math.random()) * minDim
+  pAngV[j] = 0.5 + 1.3 * Math.random()  // same sign as ring spin: spiral, not plunge
+  pLife[j] = pMaxLife[j] = 2.5
+  pSize[j] = 3.5 + 6 * Math.random() * Math.random()
+  pSpr[j] = Math.random() < 0.75 ? 0 : 1
+}
+
+let t = 0
+let lastT = 0
+let raf = 0
+
+function frame(now) {
+  raf = requestAnimationFrame(frame)
+  let dt = (now - lastT) / 1000
+  lastT = now
+  if (dt > 0.05) dt = 0.05
+  if (dt <= 0) return
+  t += dt
+
+  // ~0.5s settle toward state targets
+  const k = 1 - Math.exp(-dt * 7)
+  curR      += (tgt.r      - curR)      * k
+  curSpread += (tgt.spread - curSpread) * k
+  curSpeed  += (tgt.speed  - curSpeed)  * k
+  curAlpha  += (tgt.alpha  - curAlpha)  * k
+  curCore   += (tgt.core   - curCore)   * k
+  curSplit  += (tgt.split  - curSplit)  * k
+  curWork   += (tgt.work   - curWork)   * k
+
+  let radTgt, briTgt, speechTgt
+  if (stateName === 'listening') {
+    const e = micEnv(t)
+    // strong breathing: ~±22% of ring radius, the headline motion for this state
+    radTgt = (e - 0.5) * 0.55
+    briTgt = 0.5 * e
+    speechTgt = 0
+    spawnAcc += dt * (45 + 70 * e)
+    while (spawnAcc >= 1) {
+      spawnAcc -= 1
+      spawnStreamer()
+    }
+  } else if (stateName === 'speaking') {
+    const s = speechEnv(t)
+    radTgt = 0.03 * s
+    briTgt = 0.55 * s
+    speechTgt = s
+    spawnAcc = 0
+    if (armed && s > 0.5) {
+      detonate(Math.min(1, s))
+      armed = false
+    } else if (!armed && s < 0.26) {
+      armed = true
+    }
+  } else if (stateName === 'working') {
+    // deliberately not audio-reactive: steady radius and brightness, the only
+    // motion accents are the constant spin and the radar sweep
+    radTgt = 0
+    briTgt = 0.18
+    speechTgt = 0
+    spawnAcc = 0
+  } else {
+    radTgt = 0.015 * Math.sin(t * 0.5)
+    briTgt = 0
+    speechTgt = 0
+    spawnAcc = 0
+  }
+  radEnv += (radTgt - radEnv) * Math.min(1, dt * 10)
+  briEnv += (briTgt - briEnv) * Math.min(1, dt * 12)
+  // fast attack, slower release so each burst reads as an outward jolt
+  pulse += (speechTgt - pulse) * Math.min(1, dt * (speechTgt > pulse ? 24 : 5))
+  flash -= flash * Math.min(1, dt * 4.5)
+
+  sweepAng += dt * 2.6
+  if (sweepAng > Math.PI * 2) sweepAng -= Math.PI * 2
+
+  const ringR = curR * minDim * (1 + radEnv)
+  curRingR = ringR
+  const spreadPx = curSpread * minDim
+  // bursts jolt both rings outward ~18% of radius on top of the shockwaves
+  const kickPx = pulse * 0.05 * minDim
+  const sepPx = curSplit * minDim * (0.062 + 0.028 * pulse)
+  const dirOuter = 1 - 2 * curSplit   // outer ring speed eases through 0 to reverse
+  const innerMul = 1 + 0.35 * curSplit
+  const sizeMul = 1 + 0.25 * briEnv
+
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.fillStyle = '#08080d'
+  ctx.fillRect(0, 0, vw, vh)
+  ctx.globalCompositeOperation = 'lighter'
+
+  const coreR = ringR * 0.95 * (1 + 0.4 * flash)
+  const coreA = curCore * (0.55 + 0.9 * briEnv) + 0.85 * flash
+  ctx.globalAlpha = coreA > 1 ? 1 : coreA
+  ctx.drawImage(coreGlow, cx - coreR, cy - coreR, coreR * 2, coreR * 2)
+
+  // Shockwave wavefronts: a wide soft stroke plus a thin bright one
+  ctx.strokeStyle = 'rgb(170,225,255)'
+  for (let w = 0; w < W; w++) {
+    if (fAge[w] >= F_LIFE) continue
+    fAge[w] += dt
+    const fade = 1 - fAge[w] / F_LIFE
+    if (fade <= 0) continue
+    const rr = fR0[w] + fSpeed[w] * fAge[w]
+    const a = fStr[w] * fade * fade
+    ctx.globalAlpha = Math.min(1, a * 0.35)
+    ctx.lineWidth = 2 + 12 * fade
+    ctx.beginPath()
+    ctx.arc(cx, cy, rr, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.globalAlpha = Math.min(1, a)
+    ctx.lineWidth = 2.5
+    ctx.beginPath()
+    ctx.arc(cx, cy, rr, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+
+  const glow = curAlpha * (1 + briEnv)
+  const TAU = Math.PI * 2
+  const sweeping = curWork > 0.003
+  for (let i = 0; i < N; i++) {
+    const outer = i & 1
+    angle[i] += baseSpeed[i] * curSpeed * dt * (outer ? dirOuter : innerMul)
+    const r = ringR
+      + (outer ? sepPx : -sepPx)
+      + radOff[i] * spreadPx
+      + Math.sin(t * wobF[i] + phase[i]) * wobA[i]
+      + kickF[i] * kickPx
+    const x = cx + Math.cos(angle[i]) * r
+    const y = cy + Math.sin(angle[i]) * r
+    const tw = 0.72 + 0.28 * Math.sin(t * twF[i] + phase[i] * 3)
+    let sw = 0
+    if (sweeping) {
+      // trailing angular distance behind the sweep head, hot near 0
+      let d = sweepAng - angle[i]
+      d -= Math.floor(d / TAU) * TAU
+      const fall = 1 - d * 0.8
+      if (fall > 0) sw = curWork * fall * fall
+    }
+    const a = baseAlpha[i] * glow * tw * (1 + 1.7 * sw)
+    ctx.globalAlpha = a > 1 ? 1 : a
+    const s = size[i] * sizeMul * (1 + 0.5 * sw)
+    ctx.drawImage(sprites[spriteIx[i]], x - s / 2, y - s / 2, s, s)
+  }
+
+  // Radar leading edge: crisp arc trailing the sweep head, plus a hot head dot
+  if (sweeping) {
+    ctx.strokeStyle = 'rgb(170,225,255)'
+    ctx.globalAlpha = 0.28 * curWork
+    ctx.lineWidth = 10
+    ctx.beginPath()
+    ctx.arc(cx, cy, ringR, sweepAng - 0.9, sweepAng)
+    ctx.stroke()
+    ctx.globalAlpha = 0.85 * curWork
+    ctx.lineWidth = 2.5
+    ctx.beginPath()
+    ctx.arc(cx, cy, ringR, sweepAng - 0.9, sweepAng)
+    ctx.stroke()
+    const hs = 18
+    ctx.drawImage(sprites[3], cx + Math.cos(sweepAng) * ringR - hs / 2, cy + Math.sin(sweepAng) * ringR - hs / 2, hs, hs)
+  }
+
+  const fadeBand = 0.07 * minDim
+  for (let j = 0; j < P; j++) {
+    const mode = pMode[j]
+    if (mode === 0) continue
+    pLife[j] -= dt
+    if (pLife[j] <= 0) { poolFree(j); continue }
+    if (mode === 1) {
+      pRadV[j] -= 0.25 * minDim * dt  // gentle inward pull: "sucked in" acceleration
+      pRad[j] += pRadV[j] * dt
+      pAng[j] += pAngV[j] * dt
+      if (pRad[j] <= ringR * 1.02) { poolFree(j); continue }
+      const age = pMaxLife[j] - pLife[j]
+      const fadeIn = Math.min(1, age * 4)
+      const prox = Math.min(1, (pRad[j] - ringR) / fadeBand)
+      const a = 0.9 * glow * fadeIn * prox
+      ctx.globalAlpha = a > 1 ? 1 : a
+      const co = Math.cos(pAng[j]), si = Math.sin(pAng[j])
+      const s = pSize[j]
+      ctx.drawImage(sprites[pSpr[j]], cx + co * pRad[j] - s / 2, cy + si * pRad[j] - s / 2, s, s)
+      // faint second copy trailing outward reads as a comet tail toward the center
+      ctx.globalAlpha = ctx.globalAlpha * 0.45
+      const tr = pRad[j] + 10
+      ctx.drawImage(sprites[pSpr[j]], cx + co * tr - s / 2, cy + si * tr - s / 2, s, s)
+    } else {
+      pRadV[j] -= pRadV[j] * Math.min(1, dt * 0.8)
+      pRad[j] += pRadV[j] * dt
+      pAng[j] += pAngV[j] * dt
+      const li = pLife[j] / pMaxLife[j]
+      const a = 1.1 * li * li
+      ctx.globalAlpha = a > 1 ? 1 : a
+      const s = pSize[j] * (0.8 + 0.6 * li)
+      ctx.drawImage(sprites[pSpr[j]], cx + Math.cos(pAng[j]) * pRad[j] - s / 2, cy + Math.sin(pAng[j]) * pRad[j] - s / 2, s, s)
+    }
+  }
+}
+
+function start() {
+  if (raf) return
+  lastT = performance.now()
+  raf = requestAnimationFrame(frame)
+}
+function stop() {
+  cancelAnimationFrame(raf)
+  raf = 0
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stop()
+  else start()
+})
+
+const buttons = document.querySelectorAll('#controls button')
+function setState(name) {
+  const prev = stateName
+  stateName = name
+  tgt = STATES[name]
+  buttons.forEach(b => b.classList.toggle('active', b.dataset.state === name))
+  // instant pop on entry so speaking reads immediately, even in a thumbnail
+  if (name === 'speaking' && prev !== 'speaking') detonate(0.9)
+}
+buttons.forEach(b => b.addEventListener('click', () => setState(b.dataset.state)))
+canvas.addEventListener('click', () => {
+  setState(ORDER[(ORDER.indexOf(stateName) + 1) % ORDER.length])
+})
+window.addEventListener('keydown', e => {
+  if (e.key === '1') setState('idle')
+  else if (e.key === '2') setState('listening')
+  else if (e.key === '3') setState('working')
+  else if (e.key === '4') setState('speaking')
+})
+
+const embed = location.search.indexOf('embed') !== -1
+let autoTimer = 0
+function startAutoCycle() {
+  if (!embed || autoTimer) return
+  autoTimer = setInterval(() => {
+    setState(ORDER[(ORDER.indexOf(stateName) + 1) % ORDER.length])
+  }, 4000)
+}
+if (embed) {
+  document.body.classList.add('embed')
+  startAutoCycle()
+}
+
+// State control from a parent page embedding this one in an iframe
+window.addEventListener('message', e => {
+  const d = e.data
+  if (!d || d.type !== 'voice-state') return
+  if (d.state === 'auto') {
+    startAutoCycle()
+  } else if (ORDER.indexOf(d.state) !== -1) {
+    clearInterval(autoTimer)
+    autoTimer = 0
+    setState(d.state)
+  }
+})
+
+start()
+</script>
+</body>
+</html>

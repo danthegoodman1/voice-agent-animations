@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dot Matrix — Voice Agent Animation</title>
+<style>
+  :root {
+    --fg-dim: rgba(255, 255, 255, .6);
+    --accent: #7fe3ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #08080d;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  canvas {
+    position: fixed;
+    inset: 0;
+    display: block;
+    cursor: pointer;
+  }
+  header {
+    position: fixed;
+    top: 20px;
+    left: 24px;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  header a {
+    color: var(--fg-dim);
+    text-decoration: none;
+    font-size: 13px;
+    letter-spacing: .02em;
+    transition: color .2s ease;
+  }
+  header a:hover { color: #fff; }
+  header h1 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg-dim);
+    letter-spacing: .08em;
+  }
+  nav {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    display: flex;
+    gap: 8px;
+    padding: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .035);
+    border: 1px solid rgba(255, 255, 255, .07);
+    backdrop-filter: blur(10px);
+  }
+  nav button {
+    appearance: none;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    padding: 8px 20px;
+    font: 500 13px/1 system-ui, -apple-system, sans-serif;
+    letter-spacing: .03em;
+    color: var(--fg-dim);
+    background: transparent;
+    cursor: pointer;
+    transition: color .25s ease, background .25s ease, border-color .25s ease, box-shadow .25s ease;
+  }
+  nav button:hover { color: #fff; }
+  nav button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  nav button.active {
+    color: #e6faff;
+    background: rgba(110, 215, 255, .12);
+    border-color: rgba(110, 215, 255, .45);
+    box-shadow: 0 0 18px rgba(90, 200, 255, .18), inset 0 0 10px rgba(90, 200, 255, .06);
+  }
+  body.embed header, body.embed nav { display: none; }
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="Voice agent status animation"></canvas>
+<header>
+  <a href="../">&larr; Gallery</a>
+  <h1>Dot Matrix</h1>
+</header>
+<nav aria-label="Animation state">
+  <button type="button" data-state="idle">Idle</button>
+  <button type="button" data-state="listening">Listening</button>
+  <button type="button" data-state="working">Working</button>
+  <button type="button" data-state="speaking">Speaking</button>
+</nav>
+<script>
+(() => {
+  'use strict'
+
+  const canvas = document.getElementById('c')
+  const ctx = canvas.getContext('2d')
+  const STATE_ORDER = ['idle', 'listening', 'working', 'speaking']
+
+  // Per-state targets, eased toward over ~0.5s on state change.
+  const PARAMS = {
+    idle:      { twinkle: 1.00, base: 0.045, glow: 0.05 },
+    listening: { twinkle: 0.15, base: 0.070, glow: 0.16 },
+    working:   { twinkle: 0.10, base: 0.075, glow: 0.13 },
+    speaking:  { twinkle: 0.08, base: 0.085, glow: 0.22 },
+  }
+
+  let state = 'idle'
+  let twinkleAmp = PARAMS.idle.twinkle
+  let baseAlpha = PARAMS.idle.base
+  let glowLevel = PARAMS.idle.glow
+  let centerBoost = 0
+
+  // ---- Dot glow sprite: white-hot core fading to cyan halo, rendered once.
+  const SPRITE = 64
+  const sprite = document.createElement('canvas')
+  sprite.width = sprite.height = SPRITE
+  {
+    const sctx = sprite.getContext('2d')
+    const g = sctx.createRadialGradient(SPRITE / 2, SPRITE / 2, 0, SPRITE / 2, SPRITE / 2, SPRITE / 2)
+    g.addColorStop(0.00, 'rgba(255,255,255,1)')
+    g.addColorStop(0.22, 'rgba(232,250,255,1)')
+    g.addColorStop(0.40, 'rgba(150,228,255,0.45)')
+    g.addColorStop(0.70, 'rgba(70,185,255,0.08)')
+    g.addColorStop(1.00, 'rgba(40,150,255,0)')
+    sctx.fillStyle = g
+    sctx.fillRect(0, 0, SPRITE, SPRITE)
+  }
+
+  // ---- Lattice: hex grid masked to a circle, positions precomputed in px.
+  // Sprite core sits at ~22% of its radius, so drawn half-size = dotR / 0.22.
+  let dotCount = 0
+  let px, py, pr, pa, twF, twP, twA, cFall
+  let baseSize = 6
+  let cw = 0, ch = 0
+  let bgGlow = null
+  let bgGlowR = 0, bgCx = 0, bgCy = 0
+
+  function hash(n) {
+    const s = Math.sin(n * 127.1) * 43758.5453
+    return s - Math.floor(s)
+  }
+
+  function rebuild() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    cw = window.innerWidth
+    ch = window.innerHeight
+    canvas.width = Math.round(cw * dpr)
+    canvas.height = Math.round(ch * dpr)
+    canvas.style.width = cw + 'px'
+    canvas.style.height = ch + 'px'
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+    const cx = cw / 2
+    const cy = ch / 2
+    const R = Math.min(cw, ch) * 0.36
+    const s = R * 0.095            // hex spacing -> ~400 dots inside the circle
+    const rowH = s * Math.sqrt(3) / 2
+    const dotR = s * 0.185
+    baseSize = dotR / 0.22
+
+    const xs = [], ys = [], rs = []
+    const rows = Math.ceil(R / rowH) + 1
+    for (let j = -rows; j <= rows; j++) {
+      const y = j * rowH
+      const xOff = (j & 1) ? s / 2 : 0
+      const cols = Math.ceil(R / s) + 1
+      for (let i = -cols; i <= cols; i++) {
+        const x = i * s + xOff
+        const r = Math.sqrt(x * x + y * y) / R
+        if (r <= 1.0) { xs.push(x), ys.push(y), rs.push(r) }
+      }
+    }
+
+    dotCount = xs.length
+    px = new Float32Array(dotCount)
+    py = new Float32Array(dotCount)
+    pr = new Float32Array(dotCount)
+    pa = new Float32Array(dotCount)
+    twF = new Float32Array(dotCount)
+    twP = new Float32Array(dotCount)
+    twA = new Float32Array(dotCount)
+    cFall = new Float32Array(dotCount)
+    for (let i = 0; i < dotCount; i++) {
+      px[i] = cx + xs[i]
+      py[i] = cy + ys[i]
+      pr[i] = rs[i]
+      const a = Math.atan2(ys[i], xs[i])
+      pa[i] = a < 0 ? a + Math.PI * 2 : a  // dot angle in [0, 2pi) for the radar sweep
+      twF[i] = 0.15 + hash(i * 3.7 + 1) * 0.35     // slow: one blip per ~15-40s
+      twP[i] = hash(i * 7.3 + 2) * Math.PI * 2
+      // Only some dots ever twinkle, keeping idle sparse.
+      twA[i] = hash(i * 5.1 + 3) < 0.55 ? 0.25 + hash(i * 13.7 + 4) * 0.55 : 0
+      cFall[i] = Math.exp(-(rs[i] * rs[i]) / 0.055) // center-boost falloff
+    }
+
+    bgGlowR = R * 1.15
+    bgCx = cx
+    bgCy = cy
+    bgGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, bgGlowR)
+    bgGlow.addColorStop(0, 'rgba(80,190,255,0.30)')
+    bgGlow.addColorStop(0.5, 'rgba(60,160,255,0.08)')
+    bgGlow.addColorStop(1, 'rgba(40,120,255,0)')
+  }
+
+  // ---- Wave pool: fixed slots, parallel arrays, zero per-frame allocation.
+  const MAXW = 16
+  const wAmp = new Float32Array(MAXW)      // base amplitude (0 = inactive)
+  const wCur = new Float32Array(MAXW)      // amplitude after edge fades
+  const wR = new Float32Array(MAXW)        // ring radius, normalized 0..1
+  const wSpd = new Float32Array(MAXW)      // signed: negative travels inward
+  const wInvW = new Float32Array(MAXW)
+  let wNext = 0
+
+  function spawnWave(amp, speed, width) {
+    const i = wNext
+    wNext = (wNext + 1) % MAXW
+    wAmp[i] = amp
+    wCur[i] = 0
+    wSpd[i] = speed
+    wInvW[i] = 1 / width
+    wR[i] = speed > 0 ? -0.02 : 1.05
+  }
+
+  // ---- Envelopes.
+  // Listening: smooth layered sines standing in for a mic level.
+  function micEnv(t) {
+    let v = 0.5 + 0.28 * Math.sin(t * 1.9) + 0.18 * Math.sin(t * 3.1 + 1.7) + 0.12 * Math.sin(t * 0.7 + 4.2)
+    return v < 0 ? 0 : v > 1 ? 1 : v
+  }
+  // Speaking: choppy syllables gated by word-length pauses.
+  function speechEnv(t) {
+    if (hash(Math.floor(t / 0.95) * 7.13) > 0.78) return 0   // inter-word pause
+    const syl = Math.floor(t / 0.185)
+    if (hash(syl * 3.71) < 0.25) return 0                    // silent syllable slot
+    const f = t / 0.185 - syl
+    return (0.35 + 0.65 * hash(syl * 9.77)) * Math.pow(Math.sin(f * Math.PI), 0.6)
+  }
+
+  // ---- Working: radar sweep, a radial sector orbiting at constant speed.
+  const SWEEP_SPEED = 2.85               // rad/s, one revolution ~2.2s
+  const TWO_PI = Math.PI * 2
+  let sweepAmp = 0                       // eased 0..1 in/out of the working state
+  let sweepAngle = 0
+
+  // ---- State machine + spawning.
+  let spawnTimer = 0
+  let spawnCount = 0
+  let prevSpeech = 0
+
+  function setState(next) {
+    state = next
+    const btns = document.querySelectorAll('nav button')
+    for (let i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle('active', btns[i].dataset.state === next)
+    }
+  }
+
+  function updateSpawns(t, dt) {
+    if (state === 'listening') {
+      spawnTimer += dt
+      const interval = 0.45 + 0.2 * hash(spawnCount * 11.3)
+      if (spawnTimer >= interval) {
+        spawnTimer = 0
+        spawnCount++
+        spawnWave(0.3 + 0.55 * micEnv(t), -0.55, 0.095)
+      }
+    } else if (state === 'speaking') {
+      const env = speechEnv(t)
+      // Every burst onset launches an extra-bright wavefront from the center.
+      if (env >= 0.28 && prevSpeech < 0.28) {
+        spawnWave(0.55 + 0.45 * env, 1.05, 0.09)
+        spawnTimer = 0
+      } else if (env >= 0.28) {
+        spawnTimer += dt
+        if (spawnTimer >= 0.15) {
+          spawnTimer = 0
+          spawnWave(0.4 + 0.5 * env, 1.0, 0.075)
+        }
+      }
+      prevSpeech = env
+    }
+  }
+
+  function updateWaves(dt) {
+    for (let i = 0; i < MAXW; i++) {
+      if (wAmp[i] <= 0) continue
+      wR[i] += wSpd[i] * dt
+      const r = wR[i]
+      let fade
+      if (wSpd[i] > 0) {                       // outward: fade out at the rim
+        if (r > 1.12) { wAmp[i] = 0; wCur[i] = 0; continue }
+        fade = r > 0.8 ? 1 - (r - 0.8) / 0.32 : 1
+      } else {                                 // inward: swell as it converges, die at center
+        if (r < -0.12) { wAmp[i] = 0; wCur[i] = 0; continue }
+        fade = r < 0.12 ? (r + 0.12) / 0.24 : 1
+        const conv = r < 1 ? (r > 0 ? 1 - r : 1) : 0
+        fade *= 1 + 0.35 * conv
+      }
+      wCur[i] = wAmp[i] * (fade < 0 ? 0 : fade)
+    }
+  }
+
+  // ---- Main loop.
+  let running = false
+  let lastNow = 0
+  let t = 0
+
+  function frame(now) {
+    if (document.hidden) { running = false; return }
+    let dt = (now - lastNow) / 1000
+    lastNow = now
+    if (dt > 0.05) dt = 0.05
+    if (dt < 0) dt = 0
+    t += dt
+
+    // Ease globals toward the current state's targets (~0.5s settle).
+    const p = PARAMS[state]
+    const k = 1 - Math.exp(-dt * 7)
+    twinkleAmp += (p.twinkle - twinkleAmp) * k
+    baseAlpha += (p.base - baseAlpha) * k
+    glowLevel += (p.glow - glowLevel) * k
+    const cbTarget = state === 'speaking' ? speechEnv(t) * 0.6 : 0
+    centerBoost += (cbTarget - centerBoost) * (1 - Math.exp(-dt * 10))
+    sweepAmp += ((state === 'working' ? 1 : 0) - sweepAmp) * k
+    // Keep rotating even while fading so transitions out of working stay coherent.
+    sweepAngle += SWEEP_SPEED * dt
+    if (sweepAngle >= TWO_PI) sweepAngle -= TWO_PI
+    const sweepOn = sweepAmp > 0.004
+
+    updateSpawns(t, dt)
+    updateWaves(dt)
+
+    ctx.clearRect(0, 0, cw, ch)
+
+    ctx.globalAlpha = glowLevel + centerBoost * 0.35
+    ctx.fillStyle = bgGlow
+    ctx.fillRect(bgCx - bgGlowR, bgCy - bgGlowR, bgGlowR * 2, bgGlowR * 2)
+
+    const invBase = 1 - baseAlpha
+    for (let i = 0; i < dotCount; i++) {
+      let b = 0
+      const v = Math.sin(t * twF[i] + twP[i])
+      if (v > 0 && twA[i] > 0) {
+        // v^64 via repeated squaring: rare soft blips instead of steady pulsing
+        let q = v * v; q *= q; q *= q; q *= q; q *= q; q *= q
+        b = twinkleAmp * twA[i] * q
+      }
+      for (let w = 0; w < MAXW; w++) {
+        if (wCur[w] <= 0) continue
+        const d = (pr[i] - wR[w]) * wInvW[w]
+        if (d > 2.6 || d < -2.6) continue
+        b += wCur[w] * Math.exp(-d * d)
+      }
+      if (sweepOn) {
+        // Full brightness at the sweep arm, exponential wake trailing behind it.
+        let diff = sweepAngle - pa[i]
+        if (diff < 0) diff += TWO_PI
+        b += sweepAmp * 0.85 * Math.exp(-diff * 1.1)
+      }
+      b += centerBoost * cFall[i]
+      if (b > 1) b = 1
+      const half = baseSize * (1 + 0.5 * b)
+      ctx.globalAlpha = baseAlpha + b * invBase
+      ctx.drawImage(sprite, px[i] - half, py[i] - half, half + half, half + half)
+    }
+    ctx.globalAlpha = 1
+
+    requestAnimationFrame(frame)
+  }
+
+  function start() {
+    if (running || document.hidden) return
+    running = true
+    lastNow = performance.now()
+    requestAnimationFrame(frame)
+  }
+
+  document.addEventListener('visibilitychange', start)
+
+  // ---- Controls.
+  document.querySelectorAll('nav button').forEach(btn => {
+    btn.addEventListener('click', () => setState(btn.dataset.state))
+  })
+  canvas.addEventListener('click', () => {
+    setState(STATE_ORDER[(STATE_ORDER.indexOf(state) + 1) % STATE_ORDER.length])
+  })
+  window.addEventListener('keydown', e => {
+    if (e.key === '1') setState('idle')
+    else if (e.key === '2') setState('listening')
+    else if (e.key === '3') setState('working')
+    else if (e.key === '4') setState('speaking')
+  })
+
+  let autoTimer = 0
+
+  function startAutoCycle() {
+    autoTimer = setInterval(() => {
+      setState(STATE_ORDER[(STATE_ORDER.indexOf(state) + 1) % STATE_ORDER.length])
+    }, 4000)
+  }
+
+  if (location.search.includes('embed')) {
+    document.body.classList.add('embed')
+    startAutoCycle()
+  }
+
+  // Parent gallery pages drive state via postMessage; an explicit state stops
+  // the embed auto-cycle for good, "auto" resumes it.
+  window.addEventListener('message', e => {
+    const msg = e.data
+    if (!msg || msg.type !== 'voice-state') return
+    if (STATE_ORDER.includes(msg.state)) {
+      clearInterval(autoTimer)
+      autoTimer = 0
+      setState(msg.state)
+    } else if (msg.state === 'auto' && !autoTimer && document.body.classList.contains('embed')) {
+      startAutoCycle()
+    }
+  })
+
+  window.addEventListener('resize', rebuild)
+  rebuild()
+  setState('idle')
+  start()
+})()
+</script>
+</body>
+</html>

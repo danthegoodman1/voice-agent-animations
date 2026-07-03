@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Halo Fusion — Voice Agent Animation</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: #08080d;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  header {
+    position: fixed;
+    top: 20px;
+    left: 24px;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  header a {
+    color: rgba(255,255,255,.6);
+    text-decoration: none;
+    font-size: 13px;
+    transition: color .2s;
+  }
+  header a:hover { color: rgba(255,255,255,.95); }
+  header h1 {
+    color: rgba(255,255,255,.6);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: .04em;
+  }
+
+  nav {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    display: flex;
+    gap: 8px;
+    padding: 6px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.08);
+    backdrop-filter: blur(12px);
+  }
+  nav button {
+    appearance: none;
+    border: 1px solid transparent;
+    background: transparent;
+    color: rgba(255,255,255,.55);
+    font: 500 13px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 9px 18px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color .25s, background .25s, border-color .25s, box-shadow .25s;
+  }
+  nav button:hover { color: rgba(255,255,255,.85); }
+  nav button.active {
+    color: #d6f3ff;
+    background: rgba(110,200,255,.14);
+    border-color: rgba(110,200,255,.35);
+    box-shadow: 0 0 18px rgba(110,200,255,.18) inset;
+  }
+
+  body.embed header, body.embed nav { display: none; }
+</style>
+</head>
+<body>
+<canvas id="halo"></canvas>
+<header>
+  <a href="../">&larr; Gallery</a>
+  <h1>Halo Fusion</h1>
+</header>
+<nav id="controls">
+  <button data-state="idle" class="active">Idle</button>
+  <button data-state="listening">Listening</button>
+  <button data-state="working">Working</button>
+  <button data-state="speaking">Speaking</button>
+</nav>
+<script>
+'use strict'
+
+const canvas = document.getElementById('halo')
+const ctx = canvas.getContext('2d')
+const DPR = Math.min(2, window.devicePixelRatio || 1)
+const TAU = Math.PI * 2
+
+let vw = 0, vh = 0, cx = 0, cy = 0, minDim = 0
+function resize() {
+  vw = window.innerWidth
+  vh = window.innerHeight
+  canvas.width = Math.round(vw * DPR)
+  canvas.height = Math.round(vh * DPR)
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
+  ctx.lineCap = 'round'
+  cx = vw / 2
+  cy = vh / 2
+  minDim = Math.min(vw, vh)
+}
+window.addEventListener('resize', resize)
+resize()
+
+// Sprites are pre-rendered once; the frame loop only calls drawImage/stroke.
+function makeSprite(r, g, b) {
+  const c = document.createElement('canvas')
+  c.width = c.height = 64
+  const sc = c.getContext('2d')
+  const grad = sc.createRadialGradient(32, 32, 0, 32, 32, 32)
+  grad.addColorStop(0, 'rgba(255,255,255,.9)')
+  grad.addColorStop(0.18, 'rgba(' + r + ',' + g + ',' + b + ',.85)')
+  grad.addColorStop(0.5, 'rgba(' + r + ',' + g + ',' + b + ',.22)')
+  grad.addColorStop(1, 'rgba(' + r + ',' + g + ',' + b + ',0)')
+  sc.fillStyle = grad
+  sc.fillRect(0, 0, 64, 64)
+  return c
+}
+function makeCoreGlow(r0, g0, b0, r1, g1, b1) {
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const sc = c.getContext('2d')
+  const grad = sc.createRadialGradient(128, 128, 0, 128, 128, 128)
+  grad.addColorStop(0, 'rgba(' + r0 + ',' + g0 + ',' + b0 + ',.5)')
+  grad.addColorStop(0.4, 'rgba(' + r1 + ',' + g1 + ',' + b1 + ',.16)')
+  grad.addColorStop(1, 'rgba(' + r1 + ',' + g1 + ',' + b1 + ',0)')
+  sc.fillStyle = grad
+  sc.fillRect(0, 0, 256, 256)
+  return c
+}
+const spritesCool = [
+  makeSprite(125, 227, 255),  // cyan
+  makeSprite(128, 122, 255),  // indigo
+  makeSprite(255, 178, 110),  // warm accent
+]
+// Full-opacity stroke colors matching the sprites; fade is done via globalAlpha
+const trailColor = ['rgba(125,227,255,1)', 'rgba(128,122,255,1)', 'rgba(255,178,110,1)']
+const coreCool = makeCoreGlow(120, 170, 255, 95, 115, 235)
+
+const N = 280
+const SPOKES = 28
+const PER_SPOKE = N / SPOKES
+
+const angle     = new Float32Array(N)  // orbital position (drifts in ring states)
+const baseSpeed = new Float32Array(N)  // rad/s at speed multiplier 1
+const radOff    = new Float32Array(N)  // -1..1 bell-shaped, scaled by spread
+const size      = new Float32Array(N)
+const baseAlpha = new Float32Array(N)
+const wobF      = new Float32Array(N)  // radial wobble frequency
+const wobA      = new Float32Array(N)  // radial wobble amplitude, px
+const twF       = new Float32Array(N)  // twinkle frequency
+const phase     = new Float32Array(N)
+const px        = new Float32Array(N)  // previous frame position, for velocity trails
+const py        = new Float32Array(N)
+const spriteIx  = new Uint8Array(N)
+const spoke     = new Uint8Array(N)    // equalizer bar assignment
+const chainT    = new Float32Array(N)  // 0=bar base, 1=bar tip
+const spokeOff  = new Float32Array(N)  // small angular jitter, tapered toward the tip
+
+for (let i = 0; i < N; i++) {
+  angle[i] = Math.random() * TAU
+  baseSpeed[i] = 0.12 + Math.random() * 0.3
+  // sum of three uniforms gives a soft bell so the ring has a dense core with fuzzy edges
+  radOff[i] = (Math.random() + Math.random() + Math.random() - 1.5) / 1.5
+  size[i] = 4 + 11 * Math.pow(Math.random(), 2.2)
+  baseAlpha[i] = 0.45 + Math.random() * 0.55
+  wobF[i] = 0.4 + Math.random() * 0.9
+  wobA[i] = 2 + Math.random() * 5
+  twF[i] = 0.6 + Math.random() * 1.8
+  phase[i] = Math.random() * TAU
+  const roll = Math.random()
+  spriteIx[i] = roll < 0.07 ? 2 : roll < 0.55 ? 0 : 1
+  spoke[i] = i % SPOKES
+  chainT[i] = (Math.floor(i / SPOKES) + 0.15 + Math.random() * 0.7) / PER_SPOKE
+  spokeOff[i] = (Math.random() - 0.5) * 0.06 * (1 - 0.6 * chainT[i])
+}
+
+// Fake speech spectrum: one band per spoke, each bouncing on its own rhythm.
+const band   = new Float32Array(SPOKES)
+const bandF1 = new Float32Array(SPOKES)
+const bandF2 = new Float32Array(SPOKES)
+const bandP1 = new Float32Array(SPOKES)
+const bandP2 = new Float32Array(SPOKES)
+const spokeAng = new Float32Array(SPOKES)
+for (let b = 0; b < SPOKES; b++) {
+  bandF1[b] = 5 + Math.random() * 6
+  bandF2[b] = 0.9 + Math.random() * 2.4
+  bandP1[b] = Math.random() * TAU
+  bandP2[b] = Math.random() * TAU
+  spokeAng[b] = b * TAU / SPOKES
+}
+
+// Physics targets per state; current values ease toward them over ~0.5s.
+// ecc bends the ring into a precessing ellipse; trail gates comet tails.
+// In speaking, r is the spoke base radius that bars grow outward from.
+const STATES = {
+  idle:      { r: 0.36, spread: 0.100, speed: 0.55, alpha: 0.34, core: 0.12, ecc: 0,    trail: 0 },
+  listening: { r: 0.25, spread: 0.028, speed: 1.10, alpha: 0.85, core: 0.34, ecc: 0,    trail: 0 },
+  working:   { r: 0.24, spread: 0.050, speed: 5.50, alpha: 1.00, core: 0.46, ecc: 0.17, trail: 1 },
+  speaking:  { r: 0.17, spread: 0.010, speed: 0.30, alpha: 1.00, core: 0.45, ecc: 0,    trail: 0 },
+}
+const ORDER = ['idle', 'listening', 'working', 'speaking']
+let stateName = 'idle'
+let tgt = STATES.idle
+let curR = tgt.r, curSpread = tgt.spread, curSpeed = tgt.speed
+let curAlpha = tgt.alpha, curCore = tgt.core, curEcc = tgt.ecc, curTrail = tgt.trail
+
+// Envelope followers, kept smooth across state changes
+let radEnv = 0    // fractional ring radius modulation
+let briEnv = 0    // brightness boost
+let eccPhase = 0  // orientation of the working ellipse, precesses over time
+let spokeMix = 0  // 0 = ring geometry, 1 = radial equalizer bars
+let spokeSpin = 0 // slow rotation of the whole spoke assembly while speaking
+
+// Layered sines as fake mic level: smooth, wandering, never periodic-looking.
+// Amplitudes are cranked so the listening ring visibly breathes ~20% of radius.
+function micEnv(t) {
+  const e = 0.5
+    + 0.34 * Math.sin(t * 1.7) * Math.sin(t * 0.61 + 1.3)
+    + 0.20 * Math.sin(t * 3.3 + 0.7)
+    + 0.10 * Math.sin(t * 5.1 + 2.2)
+  return e < 0 ? 0 : e > 1 ? 1 : e
+}
+// Speech: gated bursts with real pauses (product of slow sines goes negative ~half the time)
+function speechEnv(t) {
+  let g = Math.sin(t * 3.1) * Math.sin(t * 1.43 + 0.8) * Math.sin(t * 0.617 + 2.0)
+  g = g > 0.02 ? Math.min(1, (g - 0.02) * 2.6) : 0
+  const carrier = 0.6 + 0.4 * Math.sin(t * 12.7 + 2.5 * Math.sin(t * 3.9))
+  return g * carrier
+}
+
+let t = 0
+let lastT = 0
+let raf = 0
+
+function frame(now) {
+  raf = requestAnimationFrame(frame)
+  let dt = (now - lastT) / 1000
+  lastT = now
+  if (dt > 0.05) dt = 0.05
+  if (dt <= 0) return
+  t += dt
+
+  // ~0.5s settle toward state targets
+  const k = 1 - Math.exp(-dt * 7)
+  curR      += (tgt.r      - curR)      * k
+  curSpread += (tgt.spread - curSpread) * k
+  curSpeed  += (tgt.speed  - curSpeed)  * k
+  curAlpha  += (tgt.alpha  - curAlpha)  * k
+  curCore   += (tgt.core   - curCore)   * k
+  curEcc    += (tgt.ecc    - curEcc)    * k
+  curTrail  += (tgt.trail  - curTrail)  * k
+  eccPhase += dt * 1.5
+
+  // Working is deliberately envelope-free: constant speed, constant glow,
+  // so the circulation reads as steady internal machinery.
+  let radTgt, briTgt, burst = 0
+  if (stateName === 'listening') {
+    const e = micEnv(t)
+    radTgt = (e - 0.5) * 0.52    // +-26% radius excursion at full swing
+    briTgt = 0.8 * e
+  } else if (stateName === 'working') {
+    radTgt = 0
+    briTgt = 0.30
+  } else if (stateName === 'speaking') {
+    burst = speechEnv(t)
+    radTgt = 0
+    briTgt = 0.55 * burst
+  } else {
+    radTgt = 0.015 * Math.sin(t * 0.5)
+    briTgt = 0
+  }
+  radEnv += (radTgt - radEnv) * Math.min(1, dt * 9)
+  briEnv += (briTgt - briEnv) * Math.min(1, dt * 12)
+  spokeMix += ((stateName === 'speaking' ? 1 : 0) - spokeMix) * Math.min(1, dt * 7)
+
+  // Bands: half-wave-rectified sine products gated by the burst envelope,
+  // fast attack / slower release so each bar slams up and falls back.
+  for (let b = 0; b < SPOKES; b++) {
+    let v = Math.sin(t * bandF1[b] + bandP1[b]) * Math.sin(t * bandF2[b] + bandP2[b])
+    if (v < 0) v = 0
+    const bt = burst * (0.15 + 0.85 * v)
+    band[b] += (bt - band[b]) * Math.min(1, dt * (bt > band[b] ? 26 : 9))
+  }
+
+  // smoothstep so the ring-to-spokes morph eases at both ends
+  const m = spokeMix * spokeMix * (3 - 2 * spokeMix)
+  const im = 1 - m
+  spokeSpin += dt * 0.06 * m
+
+  const ringR = curR * minDim * (1 + radEnv)
+  const spreadPx = curSpread * minDim
+  const stubPx = 0.045 * minDim  // bar length at zero band, keeps spikes visible in pauses
+  const extPx = 0.20 * minDim    // bar extension at full band
+  const sizeMul = 1 + 0.30 * briEnv
+  const maxTrail = ringR * 0.75
+
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.fillStyle = '#08080d'
+  ctx.fillRect(0, 0, vw, vh)
+  ctx.globalCompositeOperation = 'lighter'
+
+  const coreR = ringR * 0.95
+  const coreA = Math.min(1, curCore * (0.55 + 0.9 * briEnv))
+  if (coreA > 0.01) {
+    ctx.globalAlpha = coreA
+    ctx.drawImage(coreCool, cx - coreR, cy - coreR, coreR * 2, coreR * 2)
+  }
+
+  const glow = curAlpha * (1 + briEnv)
+  const drawTrails = curTrail > 0.02
+  for (let i = 0; i < N; i++) {
+    // orbital drift freezes as particles lock into spokes
+    angle[i] += baseSpeed[i] * curSpeed * dt * im
+    const aR = angle[i]
+    const scatter = radOff[i] * spreadPx + Math.sin(t * wobF[i] + phase[i]) * wobA[i]
+    const rRing = ringR * (1 + curEcc * Math.cos(aR + aR - eccPhase)) + scatter
+
+    let aFin, rFin, boost
+    if (m > 0.001) {
+      const s = spoke[i]
+      const aS = spokeAng[s] + spokeSpin + spokeOff[i]
+      let da = aS - aR
+      da -= Math.round(da / TAU) * TAU  // shortest angular path into the spoke
+      aFin = aR + da * m
+      const rSpoke = ringR + scatter * 0.3 + chainT[i] * (stubPx + band[s] * extPx)
+      rFin = rRing + (rSpoke - rRing) * m
+      // active bars glow, quiet bars dim, tips flare hardest
+      boost = im + m * (0.45 + 0.85 * band[s] + 0.7 * chainT[i] * band[s])
+    } else {
+      aFin = aR
+      rFin = rRing
+      boost = 1
+    }
+
+    const x = cx + Math.cos(aFin) * rFin
+    const y = cy + Math.sin(aFin) * rFin
+    const tw = 0.72 + 0.28 * Math.sin(t * twF[i] + phase[i] * 3)
+    let a = baseAlpha[i] * glow * tw * boost
+    if (a > 1) a = 1
+    const sz = size[i] * sizeMul
+    const ix = spriteIx[i]
+
+    if (drawTrails) {
+      // tail spans ~85ms of motion: a stroked streak plus two fading sprite copies
+      const spanScale = 0.085 / dt
+      let tx = (x - px[i]) * spanScale
+      let ty = (y - py[i]) * spanScale
+      const l2 = tx * tx + ty * ty
+      if (l2 > 9) {
+        if (l2 > maxTrail * maxTrail) {
+          const f = maxTrail / Math.sqrt(l2)
+          tx *= f
+          ty *= f
+        }
+        ctx.globalAlpha = a * 0.5 * curTrail
+        ctx.strokeStyle = trailColor[ix]
+        ctx.lineWidth = sz * 0.38
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+        ctx.lineTo(x - tx, y - ty)
+        ctx.stroke()
+        ctx.globalAlpha = a * 0.34 * curTrail
+        const s1 = sz * 0.78
+        ctx.drawImage(spritesCool[ix], x - tx * 0.5 - s1 / 2, y - ty * 0.5 - s1 / 2, s1, s1)
+        ctx.globalAlpha = a * 0.15 * curTrail
+        const s0 = sz * 0.6
+        ctx.drawImage(spritesCool[ix], x - tx * 0.95 - s0 / 2, y - ty * 0.95 - s0 / 2, s0, s0)
+      }
+    }
+
+    if (a > 0.01) {
+      ctx.globalAlpha = a
+      ctx.drawImage(spritesCool[ix], x - sz / 2, y - sz / 2, sz, sz)
+    }
+    px[i] = x
+    py[i] = y
+  }
+}
+
+function start() {
+  if (raf) return
+  lastT = performance.now()
+  raf = requestAnimationFrame(frame)
+}
+function stop() {
+  cancelAnimationFrame(raf)
+  raf = 0
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stop()
+  else start()
+})
+
+const buttons = document.querySelectorAll('#controls button')
+function setState(name) {
+  stateName = name
+  tgt = STATES[name]
+  buttons.forEach(b => b.classList.toggle('active', b.dataset.state === name))
+}
+buttons.forEach(b => b.addEventListener('click', () => setState(b.dataset.state)))
+canvas.addEventListener('click', () => {
+  setState(ORDER[(ORDER.indexOf(stateName) + 1) % ORDER.length])
+})
+window.addEventListener('keydown', e => {
+  if (e.key === '1') setState('idle')
+  else if (e.key === '2') setState('listening')
+  else if (e.key === '3') setState('working')
+  else if (e.key === '4') setState('speaking')
+})
+
+const isEmbed = location.search.indexOf('embed') !== -1
+let cycleTimer = 0
+function cycleNext() {
+  setState(ORDER[(ORDER.indexOf(stateName) + 1) % ORDER.length])
+}
+if (isEmbed) {
+  document.body.classList.add('embed')
+  cycleTimer = setInterval(cycleNext, 4000)
+}
+
+// Gallery page pins previews to one state (or resumes auto-cycling) via postMessage
+window.addEventListener('message', e => {
+  const d = e.data
+  if (!d || d.type !== 'voice-state') return
+  if (ORDER.indexOf(d.state) !== -1) {
+    clearInterval(cycleTimer)
+    cycleTimer = 0
+    setState(d.state)
+  } else if (d.state === 'auto' && isEmbed && !cycleTimer) {
+    cycleTimer = setInterval(cycleNext, 4000)
+  }
+})
+
+start()
+</script>
+</body>
+</html>

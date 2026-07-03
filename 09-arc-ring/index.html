@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arc Ring — Voice Agent Animation</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0 }
+
+  html, body { height: 100% }
+
+  body {
+    background: #08080d;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+
+  /* State-driven design tokens; everything visual reads from these */
+  body[data-state="idle"]      { --ws: .72; --arc-op: .35; --glow-op: .45 }
+  body[data-state="listening"] { --ws: 1;   --arc-op: .85; --glow-op: .75 }
+  body[data-state="working"]   { --ws: .95; --arc-op: .7;  --glow-op: .65 }
+  body[data-state="speaking"]  { --ws: 1.22; --arc-op: 1;  --glow-op: 1 }
+
+  #stage {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+  }
+
+  .glow {
+    position: absolute;
+    width: 82vmin;
+    height: 82vmin;
+    background: radial-gradient(circle,
+      rgba(109, 74, 255, .17) 0%,
+      rgba(56, 145, 255, .08) 34%,
+      rgba(34, 211, 238, .04) 52%,
+      transparent 70%);
+    opacity: var(--glow-op);
+    transition: opacity .6s ease;
+    pointer-events: none;
+  }
+
+  #ring {
+    width: min(62vmin, 520px);
+    height: min(62vmin, 520px);
+    will-change: transform;
+  }
+
+  .arc {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: spin var(--dur) linear infinite;
+    animation-delay: var(--delay);
+    opacity: var(--arc-op);
+    transition: opacity .5s ease;
+    will-change: transform;
+  }
+  .arc.rev { animation-direction: reverse }
+  /* JS-driven modes: the rAF loop owns the inline rotate() */
+  .arc.manual { animation: none }
+
+  @keyframes spin { to { transform: rotate(360deg) } }
+
+  .arc circle {
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    transition: stroke-width .5s ease;
+  }
+  .arc .core { stroke-width: calc(var(--w) * var(--ws) * 1px) }
+  .arc .halo { stroke-width: calc(var(--w) * var(--ws) * 3.4px); opacity: .15 }
+
+  header {
+    position: fixed;
+    top: 22px;
+    left: 26px;
+    z-index: 10;
+    font-size: 13px;
+  }
+  header a {
+    display: inline-block;
+    color: rgba(255, 255, 255, .6);
+    text-decoration: none;
+    margin-bottom: 7px;
+    transition: color .2s;
+  }
+  header a:hover { color: rgba(255, 255, 255, .95) }
+  header h1 {
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: .05em;
+    color: rgba(255, 255, 255, .6);
+  }
+
+  .controls {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: flex;
+    gap: 6px;
+    padding: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .045);
+    border: 1px solid rgba(255, 255, 255, .08);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .controls button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: rgba(255, 255, 255, .55);
+    font: 500 13px/1 system-ui, -apple-system, sans-serif;
+    letter-spacing: .02em;
+    padding: 9px 18px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background .25s ease, color .25s ease;
+  }
+  .controls button:hover { color: rgba(255, 255, 255, .9) }
+  .controls button.active {
+    background: rgba(255, 255, 255, .13);
+    color: #fff;
+  }
+
+  body.embed header, body.embed .controls { display: none }
+</style>
+</head>
+<body data-state="idle">
+
+<div id="stage">
+  <div class="glow"></div>
+  <svg id="ring" viewBox="0 0 320 320" aria-hidden="true">
+    <g class="arc" style="--w:3; --dur:70s; --delay:0s; color:#22d3ee">
+      <circle class="halo" cx="160" cy="160" r="64" pathLength="100" stroke-dasharray="62 38"/>
+      <circle class="core" cx="160" cy="160" r="64" pathLength="100" stroke-dasharray="62 38"/>
+    </g>
+    <g class="arc rev" style="--w:4; --dur:88s; --delay:-22s; color:#818cf8">
+      <circle class="halo" cx="160" cy="160" r="84" pathLength="100" stroke-dasharray="70 30"/>
+      <circle class="core" cx="160" cy="160" r="84" pathLength="100" stroke-dasharray="70 30"/>
+    </g>
+    <g class="arc" style="--w:5.5; --dur:104s; --delay:-52s; color:#a78bfa">
+      <circle class="halo" cx="160" cy="160" r="104" pathLength="100" stroke-dasharray="55 45"/>
+      <circle class="core" cx="160" cy="160" r="104" pathLength="100" stroke-dasharray="55 45"/>
+    </g>
+    <g class="arc rev" style="--w:3.5; --dur:122s; --delay:-91s; color:#6366f1">
+      <circle class="halo" cx="160" cy="160" r="124" pathLength="100" stroke-dasharray="74 26"/>
+      <circle class="core" cx="160" cy="160" r="124" pathLength="100" stroke-dasharray="74 26"/>
+    </g>
+  </svg>
+</div>
+
+<header>
+  <a href="../">&larr; Gallery</a>
+  <h1>Arc Ring</h1>
+</header>
+
+<div class="controls">
+  <button data-state="idle" class="active">Idle</button>
+  <button data-state="listening">Listening</button>
+  <button data-state="working">Working</button>
+  <button data-state="speaking">Speaking</button>
+</div>
+
+<script>
+'use strict'
+
+const ORDER = ['idle', 'listening', 'working', 'speaking']
+const DUR = [70, 88, 104, 122]      // idle seconds per revolution, mirrors --dur
+const DIR = [1, -1, 1, -1]          // idle spin direction, mirrors .rev classes
+const PHASE = [0, 1.7, 3.3, 4.9]
+// pathLength-normalized dash lengths (out of 100); listening and working arcs
+// are short so their positions read clearly, speaking is envelope-driven per frame
+const LENS = {
+  idle: [62, 70, 55, 74],
+  listening: [18, 22, 26, 29],
+  working: [16, 16, 16, 16],
+}
+const LISTEN_AMP = [4, 3.2, 2.7, 2.3]      // gentle hover drift, degrees
+const LISTEN_FREQ = [2.0, 1.6, 1.3, 1.05]  // rad/s
+const IDLE_VEL = DIR.map((d, i) => d * 360 / DUR[i])
+const SPEAK_VEL = [66, -44, -38, 30]       // deg/s: fast orbit, arcs 2 and 3 reversed vs idle
+const WORK_VEL = 36                        // deg/s: shared constant chase speed
+
+const ring = document.getElementById('ring')
+const stage = document.getElementById('stage')
+const buttons = [...document.querySelectorAll('.controls button')]
+const arcEls = [...document.querySelectorAll('.arc')]
+const dashEls = arcEls.map(g => [...g.querySelectorAll('circle')])
+
+let state = 'idle'
+let cssDriven = true                // idle steady-state runs on pure CSS animations
+let angles = [0, 0, 0, 0]           // current rotation of each arc group, degrees
+let home = [0, 0, 0, 0]             // unwrapped formation target (listening/working)
+let vel = [...IDLE_VEL]             // current angular velocity, eased between states
+let lens = [...LENS.idle]
+let trans = null                    // {t0, from}: eased travel from prior angles to home
+let rafId = 0
+let last = 0
+let idleSince = 0
+let scaleLevel = 0
+const sp = { until: 0, target: 0.1, level: 0.1 }  // speech burst state machine
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
+const norm = a => ((a % 360) + 360) % 360
+
+// Layered sines as a smooth fake mic level, 0..1
+function envelope(t) {
+  const v = Math.sin(t * 1.9) + 0.6 * Math.sin(t * 3.7 + 1.3) + 0.8 * Math.sin(t * 0.75 + 4.2)
+  return clamp(0.5 + v / 4.2, 0, 1)
+}
+
+// Choppy speech rhythm: random bursts and pauses, fast attack / slow release
+function speechLevel(t, dt) {
+  if (t >= sp.until) {
+    const burst = Math.random() < 0.6
+    sp.target = burst ? 0.6 + 0.4 * Math.random() : 0.04 + 0.12 * Math.random()
+    sp.until = t + (burst ? 0.1 + 0.22 * Math.random() : 0.08 + 0.3 * Math.random())
+  }
+  const k = sp.target > sp.level ? 18 : 6
+  sp.level += (sp.target - sp.level) * (1 - Math.exp(-k * dt))
+  return sp.level
+}
+
+function cssAngle(el) {
+  const m = getComputedStyle(el).transform.match(/matrix\(([^)]+)\)/)
+  if (!m) return 0
+  const [a, b] = m[1].split(',').map(Number)
+  return norm(Math.atan2(b, a) * 180 / Math.PI)
+}
+
+// Hand rotation control to the rAF loop without a visual jump
+function detachCss() {
+  arcEls.forEach((g, i) => {
+    angles[i] = cssAngle(g)
+    g.style.transform = 'rotate(' + angles[i] + 'deg)'
+    g.classList.add('manual')
+  })
+  cssDriven = false
+}
+
+// Resume the idle CSS spin exactly from the current JS-driven angle by
+// restarting the animation with a matching negative delay
+function attachCss() {
+  arcEls.forEach((g, i) => {
+    const frac = DIR[i] > 0 ? norm(angles[i]) / 360 : (360 - norm(angles[i])) / 360
+    g.style.setProperty('--delay', (-frac * DUR[i]).toFixed(3) + 's')
+    g.classList.remove('manual')
+    g.style.transform = ''
+  })
+  cssDriven = true
+}
+
+function tick(now) {
+  rafId = 0
+  if (document.hidden) return
+  const t = now / 1000
+  const dt = clamp((now - last) / 1000, 0.001, 0.1)
+  last = now
+
+  const level = state === 'speaking' ? speechLevel(t, dt) : 0
+  const mic = state === 'listening' ? envelope(t) : 0
+
+  let lensSettled = true
+  for (let i = 0; i < 4; i++) {
+    let target, k
+    if (state === 'speaking') {
+      // Arcs stretch sharply on bursts and relax during pauses
+      target = clamp(14 + 62 * level * (0.82 + 0.25 * Math.sin(t * 9 + i * 2.4)), 10, 86)
+      k = 26
+    } else {
+      target = LENS[state][i]
+      k = 8
+    }
+    if (state === 'speaking' || Math.abs(target - lens[i]) > 0.05) {
+      lens[i] += (target - lens[i]) * (1 - Math.exp(-k * dt))
+      lensSettled = false
+    } else if (lens[i] !== target) {
+      lens[i] = target
+    } else {
+      continue
+    }
+    const d = lens[i].toFixed(2) + ' ' + (100 - lens[i]).toFixed(2)
+    for (const c of dashEls[i]) c.style.strokeDasharray = d
+  }
+
+  let e = 1
+  if (trans) {
+    const p = Math.min(1, (now - trans.t0) / 550)
+    e = 1 - (1 - p) ** 3
+    if (p >= 1) trans = null
+  }
+
+  let velSettled = true
+  for (let i = 0; i < 4; i++) {
+    // Velocity eases toward the state target, so arcs accelerate into orbit
+    // and coast back down to the idle drift. Listening and working park the
+    // arcs positionally, but vel still tracks their true motion so exits
+    // from those states start from the right speed.
+    const velTarget = state === 'speaking' ? SPEAK_VEL[i]
+      : state === 'idle' ? IDLE_VEL[i]
+      : state === 'working' ? WORK_VEL : 0
+    vel[i] += (velTarget - vel[i]) * (1 - Math.exp(-6 * dt))
+    if (Math.abs(velTarget - vel[i]) > 0.05) velSettled = false
+
+    if (state === 'listening' || state === 'working') {
+      // The formation home advances uniformly while working, keeping the
+      // four arcs locked 90 degrees apart in a steady chase
+      if (state === 'working') home[i] += WORK_VEL * dt
+      // Wobble blends in with the same easing as the travel, so arcs arrive
+      // at the top already breathing instead of snapping into motion
+      const wob = state === 'listening'
+        ? LISTEN_AMP[i] * (0.7 * Math.sin(t * LISTEN_FREQ[i] + PHASE[i])
+            + 0.3 * Math.sin(t * LISTEN_FREQ[i] * 2.3 + PHASE[i] * 2.1)) * (0.55 + 0.45 * mic)
+        : 0
+      const base = trans ? trans.from[i] + (home[i] - trans.from[i]) * e : home[i]
+      angles[i] = base + wob * e
+    } else {
+      angles[i] += vel[i] * dt
+    }
+    arcEls[i].style.transform = 'rotate(' + angles[i].toFixed(3) + 'deg)'
+  }
+
+  // Subtle whole-ring scale pulse riding the speech bursts
+  scaleLevel += (level - scaleLevel) * (1 - Math.exp(-10 * dt))
+  if (scaleLevel > 0.001) {
+    ring.style.transform = 'scale(' + (1 + 0.045 * scaleLevel) + ')'
+  } else if (ring.style.transform) {
+    scaleLevel = 0
+    ring.style.transform = ''
+  }
+
+  // Idle steady-state is pure CSS: hand rotation back and stop the loop once
+  // dash, velocity, and scale have all relaxed to their idle values
+  if (state === 'idle' && lensSettled && velSettled && !scaleLevel && now - idleSince > 700) {
+    for (let i = 0; i < 4; i++) vel[i] = IDLE_VEL[i]
+    attachCss()
+    return
+  }
+  rafId = requestAnimationFrame(tick)
+}
+
+function ensureLoop() {
+  if (rafId || document.hidden) return
+  last = performance.now()
+  rafId = requestAnimationFrame(tick)
+}
+
+function setState(next) {
+  if (next === state) return
+  state = next
+  document.body.dataset.state = state
+  for (const b of buttons) b.classList.toggle('active', b.dataset.state === state)
+  if (cssDriven) detachCss()
+  trans = null
+  if (state === 'idle') {
+    idleSince = performance.now()
+  } else if (state === 'listening' || state === 'working') {
+    // Travel to formation: listening gathers all midpoints at 12 o'clock,
+    // working spaces them evenly for the chase. The dash midpoint sits half
+    // the arc span past the rotated dash start, so the rotation home is the
+    // midpoint minus half the final span. Travel follows each arc's idle
+    // spin direction, sweeping around the ring rather than taking the
+    // shortest path.
+    const from = [...angles]
+    for (let i = 0; i < 4; i++) {
+      const mid = state === 'listening' ? 270 : i * 90
+      const target = norm(mid - 1.8 * LENS[state][i])
+      const fwd = norm(target - norm(angles[i]))
+      home[i] = angles[i] + (DIR[i] > 0 ? fwd : fwd - 360)
+    }
+    trans = { t0: performance.now(), from }
+  } else {
+    sp.until = 0
+  }
+  ensureLoop()
+}
+
+stage.addEventListener('click', () => {
+  setState(ORDER[(ORDER.indexOf(state) + 1) % ORDER.length])
+})
+
+for (const b of buttons) b.addEventListener('click', () => setState(b.dataset.state))
+
+addEventListener('keydown', e => {
+  const i = ['1', '2', '3', '4'].indexOf(e.key)
+  if (i >= 0) setState(ORDER[i])
+})
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0 }
+  } else {
+    ensureLoop()
+  }
+})
+
+const embed = location.search.includes('embed')
+let cycleTimer = 0
+
+function startCycle() {
+  cycleTimer = setInterval(() => {
+    setState(ORDER[(ORDER.indexOf(state) + 1) % ORDER.length])
+  }, 4000)
+}
+
+if (embed) {
+  document.body.classList.add('embed')
+  startCycle()
+}
+
+// The gallery pins embedded previews to a state via postMessage
+addEventListener('message', e => {
+  const d = e.data
+  if (!d || d.type !== 'voice-state') return
+  if (d.state === 'auto') {
+    if (embed && !cycleTimer) startCycle()
+  } else if (ORDER.includes(d.state)) {
+    if (cycleTimer) { clearInterval(cycleTimer); cycleTimer = 0 }
+    setState(d.state)
+  }
+})
+</script>
+</body>
+</html>

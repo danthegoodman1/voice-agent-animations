@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oscilloscope Line — Voice Agent Animation</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box }
+
+  html, body {
+    height: 100%;
+    background: #08080d;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  canvas {
+    position: fixed;
+    inset: 0;
+    display: block;
+    cursor: pointer;
+  }
+
+  header {
+    position: fixed;
+    top: 20px;
+    left: 24px;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  header a {
+    pointer-events: auto;
+    color: rgba(255, 255, 255, .6);
+    text-decoration: none;
+    font-size: 13px;
+    transition: color .2s;
+  }
+
+  header a:hover { color: rgba(255, 255, 255, .95) }
+
+  header h1 {
+    margin-top: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, .6);
+    letter-spacing: .02em;
+  }
+
+  .controls {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    display: flex;
+    gap: 8px;
+    padding: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .04);
+    border: 1px solid rgba(255, 255, 255, .08);
+    backdrop-filter: blur(12px);
+  }
+
+  .controls button {
+    appearance: none;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    padding: 8px 18px;
+    font: 500 13px/1 system-ui, -apple-system, sans-serif;
+    letter-spacing: .02em;
+    color: rgba(255, 255, 255, .55);
+    background: transparent;
+    cursor: pointer;
+    transition: color .25s, background .25s, border-color .25s, box-shadow .25s;
+  }
+
+  .controls button:hover { color: rgba(255, 255, 255, .85) }
+
+  .controls button.active {
+    color: #fff;
+    background: rgba(140, 120, 255, .16);
+    border-color: rgba(160, 140, 255, .45);
+    box-shadow: 0 0 18px rgba(140, 110, 255, .25);
+  }
+
+  body.embed header, body.embed .controls { display: none }
+</style>
+</head>
+<body>
+<canvas id="scope"></canvas>
+
+<header>
+  <a href="../">&larr; Gallery</a>
+  <h1>Oscilloscope Line</h1>
+</header>
+
+<div class="controls" id="controls">
+  <button data-state="idle">Idle</button>
+  <button data-state="listening">Listening</button>
+  <button data-state="working">Working</button>
+  <button data-state="speaking">Speaking</button>
+</div>
+
+<script>
+'use strict'
+
+const TAU = Math.PI * 2
+const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v
+const canvas = document.getElementById('scope')
+const ctx = canvas.getContext('2d')
+
+const N = 180
+const xs = new Float32Array(N)
+const ys = new Float32Array(N)
+const win = new Float32Array(N)
+const edge = new Float32Array(N)
+
+let w = 0, h = 0, cy = 0, grad = null
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
+  w = window.innerWidth
+  h = window.innerHeight
+  cy = h / 2
+  canvas.width = Math.round(w * dpr)
+  canvas.height = Math.round(h * dpr)
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+  for (let i = 0; i < N; i++) {
+    const u = i / (N - 1)
+    xs[i] = u * w
+    // Hann-style taper, sharpened so amplitude concentrates at center
+    // and the line is dead flat at both edges.
+    win[i] = Math.pow(Math.sin(Math.PI * u), 1.6)
+    // Gentler taper for the working wave packet: full amplitude across the
+    // middle, easing to flat only in the outer 12% so the packet can travel
+    // end-to-end without shrinking mid-journey.
+    const d = Math.min(u, 1 - u) / 0.12
+    const t = clamp01(d)
+    edge[i] = t * t * (3 - 2 * t)
+  }
+
+  grad = ctx.createLinearGradient(0, 0, w, 0)
+  grad.addColorStop(0.00, '#2fd6ff')
+  grad.addColorStop(0.50, '#8a5cff')
+  grad.addColorStop(1.00, '#ff4fd8')
+}
+window.addEventListener('resize', resize)
+resize()
+
+// ---- state machine -------------------------------------------------------
+
+const ORDER = ['idle', 'listening', 'working', 'speaking']
+
+// ampFrac scales against a viewport-relative base; chop morphs the smooth
+// envelope into bursty speech; floor is the minimum envelope level; pack
+// fades in the traveling wave packet (working keeps the base line calm and
+// a near-flat envelope, so it is deliberately not audio-reactive).
+const STATES = {
+  idle:      { ampFrac: .016, speed: .25, bright: .34, chop: 0, envDepth: .40, floor: .55, envRate: .40, f1: 1.0, f2: 1.9, f3: 2.8, pack: 0 },
+  listening: { ampFrac: .21,  speed: 1.0, bright: .74, chop: 0, envDepth: 1.0, floor: .32, envRate: 1.0, f1: 1.7, f2: 2.8, f3: 4.2, pack: 0 },
+  working:   { ampFrac: .024, speed: .45, bright: .80, chop: 0, envDepth: .12, floor: .80, envRate: .30, f1: 1.2, f2: 2.1, f3: 3.0, pack: 1 },
+  speaking:  { ampFrac: .36,  speed: 2.3, bright: 1.0, chop: 1, envDepth: 1.0, floor: .06, envRate: 2.2, f1: 2.3, f2: 3.8, f3: 6.6, pack: 0 },
+}
+
+let state = 'idle'
+const cur = Object.assign({}, STATES.idle)
+const KEYS = Object.keys(cur)
+
+const buttons = Array.from(document.querySelectorAll('#controls button'))
+
+function setState(next) {
+  state = next
+  for (const b of buttons) b.classList.toggle('active', b.dataset.state === next)
+}
+setState('idle')
+
+for (const b of buttons) b.addEventListener('click', () => setState(b.dataset.state))
+
+canvas.addEventListener('click', () => {
+  setState(ORDER[(ORDER.indexOf(state) + 1) % ORDER.length])
+})
+
+window.addEventListener('keydown', e => {
+  if (e.key === '1') setState('idle')
+  else if (e.key === '2') setState('listening')
+  else if (e.key === '3') setState('working')
+  else if (e.key === '4') setState('speaking')
+})
+
+let autoTimer = 0
+
+function startAutoCycle() {
+  autoTimer = setInterval(() => {
+    setState(ORDER[(ORDER.indexOf(state) + 1) % ORDER.length])
+  }, 4000)
+}
+
+if (location.search.includes('embed')) {
+  document.body.classList.add('embed')
+  startAutoCycle()
+}
+
+// Parent gallery pages drive state via postMessage; an explicit state stops
+// the embed auto-cycle for good, "auto" resumes it.
+window.addEventListener('message', e => {
+  const msg = e.data
+  if (!msg || msg.type !== 'voice-state') return
+  if (ORDER.includes(msg.state)) {
+    clearInterval(autoTimer)
+    autoTimer = 0
+    setState(msg.state)
+  } else if (msg.state === 'auto' && !autoTimer && document.body.classList.contains('embed')) {
+    startAutoCycle()
+  }
+})
+
+// ---- animation -----------------------------------------------------------
+
+let ph1 = 0, ph2 = 0, ph3 = 0   // traveling-wave phases per layer
+let te = 0                       // envelope time, advances faster when speaking
+let pu = 0                       // working wave-packet progress, one trip per cycle
+
+function update(dt) {
+  // ~0.5s ease between states: frame-rate-independent exponential approach.
+  const tgt = STATES[state]
+  const k = 1 - Math.exp(-dt / 0.13)
+  for (const key of KEYS) cur[key] += (tgt[key] - cur[key]) * k
+
+  ph1 += TAU * 0.45 * cur.speed * dt
+  ph2 -= TAU * 0.31 * cur.speed * dt
+  ph3 += TAU * 0.83 * cur.speed * dt
+  te += cur.envRate * dt
+  // Constant-rate traversal (~2.4s end to end) keeps working mechanical.
+  pu = (pu + dt / 2.4) % 1
+}
+
+// Layered sines act as a fake mic/voice level: smooth for listening,
+// gated into bursts with brief silences for speaking.
+function envelope() {
+  const n = clamp01(0.5
+    + 0.28 * Math.sin(TAU * 0.50 * te)
+    + 0.16 * Math.sin(TAU * 1.13 * te + 1.7)
+    + 0.09 * Math.sin(TAU * 2.21 * te + 4.1))
+
+  let burst = clamp01((n - 0.42) / 0.58)
+  burst *= 0.72 + 0.28 * Math.sin(TAU * 3.1 * te + 0.6)
+
+  const e = n + (burst - n) * cur.chop
+  const depth = cur.floor + (1 - cur.floor) * e
+  return 1 + (depth - 1) * cur.envDepth
+}
+
+function draw(env) {
+  ctx.fillStyle = '#08080d'
+  ctx.fillRect(0, 0, w, h)
+
+  const ampBase = Math.min(h * 0.5, w * 0.30)
+  const amp = cur.ampFrac * ampBase * env
+  // The third (fastest) layer gains weight in speech for a busier texture.
+  const w3 = 0.35 + 0.35 * cur.chop
+  const norm = 1 / (1 + 0.6 + w3)
+
+  // Working: a rigid gaussian-windowed wave packet translating left-to-right
+  // at constant speed. The margins let it fully exit before re-entering.
+  const packAmp = cur.pack * ampBase * 0.22
+  const uc = -0.14 + pu * 1.28
+
+  for (let i = 0; i < N; i++) {
+    const u = i / (N - 1)
+    const s = Math.sin(TAU * cur.f1 * u + ph1)
+      + 0.6 * Math.sin(TAU * cur.f2 * u + ph2)
+      + w3 * Math.sin(TAU * cur.f3 * u + ph3)
+    let y = amp * win[i] * s * norm
+    if (packAmp > 0.01) {
+      const r = (u - uc) / 0.05
+      y += packAmp * edge[i] * Math.exp(-r * r) * Math.cos(TAU * 9 * (u - uc))
+    }
+    ys[i] = cy + y
+  }
+
+  const path = new Path2D()
+  path.moveTo(xs[0], ys[0])
+  for (let i = 1; i < N; i++) path.lineTo(xs[i], ys[i])
+
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = grad
+
+  // Pass 1: wide additive stroke as a soft glow halo.
+  ctx.globalCompositeOperation = 'lighter'
+  ctx.globalAlpha = cur.bright * (0.16 + 0.14 * env)
+  ctx.lineWidth = 14
+  ctx.stroke(path)
+
+  // Pass 2: crisp core line.
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.globalAlpha = cur.bright * (0.72 + 0.28 * env)
+  ctx.lineWidth = 2.2
+  ctx.stroke(path)
+
+  ctx.globalAlpha = 1
+}
+
+let raf = 0
+let last = performance.now()
+
+function frame(now) {
+  raf = requestAnimationFrame(frame)
+  const dt = Math.min((now - last) / 1000, 0.05)
+  last = now
+  update(dt)
+  draw(envelope())
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    cancelAnimationFrame(raf)
+    raf = 0
+  } else if (!raf) {
+    last = performance.now()
+    raf = requestAnimationFrame(frame)
+  }
+})
+
+raf = requestAnimationFrame(frame)
+</script>
+</body>
+</html>

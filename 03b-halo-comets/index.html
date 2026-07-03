@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Halo Comets — Voice Agent Animation</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: #08080d;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  header {
+    position: fixed;
+    top: 20px;
+    left: 24px;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  header a {
+    color: rgba(255,255,255,.6);
+    text-decoration: none;
+    font-size: 13px;
+    transition: color .2s;
+  }
+  header a:hover { color: rgba(255,255,255,.95); }
+  header h1 {
+    color: rgba(255,255,255,.6);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: .04em;
+  }
+
+  nav {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    display: flex;
+    gap: 8px;
+    padding: 6px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.08);
+    backdrop-filter: blur(12px);
+  }
+  nav button {
+    appearance: none;
+    border: 1px solid transparent;
+    background: transparent;
+    color: rgba(255,255,255,.55);
+    font: 500 13px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 9px 18px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color .25s, background .25s, border-color .25s, box-shadow .25s;
+  }
+  nav button:hover { color: rgba(255,255,255,.85); }
+  nav button.active {
+    color: #d6f3ff;
+    background: rgba(110,200,255,.14);
+    border-color: rgba(110,200,255,.35);
+    box-shadow: 0 0 18px rgba(110,200,255,.18) inset;
+  }
+
+  body.embed header, body.embed nav { display: none; }
+</style>
+</head>
+<body>
+<canvas id="halo"></canvas>
+<header>
+  <a href="../">&larr; Gallery</a>
+  <h1>Halo Comets</h1>
+</header>
+<nav id="controls">
+  <button data-state="idle" class="active">Idle</button>
+  <button data-state="listening">Listening</button>
+  <button data-state="working">Working</button>
+  <button data-state="speaking">Speaking</button>
+</nav>
+<script>
+'use strict'
+
+const canvas = document.getElementById('halo')
+const ctx = canvas.getContext('2d')
+const DPR = Math.min(2, window.devicePixelRatio || 1)
+
+let vw = 0, vh = 0, cx = 0, cy = 0, minDim = 0
+function resize() {
+  vw = window.innerWidth
+  vh = window.innerHeight
+  canvas.width = Math.round(vw * DPR)
+  canvas.height = Math.round(vh * DPR)
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
+  ctx.lineCap = 'round'
+  cx = vw / 2
+  cy = vh / 2
+  minDim = Math.min(vw, vh)
+}
+window.addEventListener('resize', resize)
+resize()
+
+// Sprites are pre-rendered once; the frame loop only calls drawImage/stroke.
+function makeSprite(r, g, b) {
+  const c = document.createElement('canvas')
+  c.width = c.height = 64
+  const sc = c.getContext('2d')
+  const grad = sc.createRadialGradient(32, 32, 0, 32, 32, 32)
+  grad.addColorStop(0, 'rgba(255,255,255,.9)')
+  grad.addColorStop(0.18, 'rgba(' + r + ',' + g + ',' + b + ',.85)')
+  grad.addColorStop(0.5, 'rgba(' + r + ',' + g + ',' + b + ',.22)')
+  grad.addColorStop(1, 'rgba(' + r + ',' + g + ',' + b + ',0)')
+  sc.fillStyle = grad
+  sc.fillRect(0, 0, 64, 64)
+  return c
+}
+function makeCoreGlow() {
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const sc = c.getContext('2d')
+  const grad = sc.createRadialGradient(128, 128, 0, 128, 128, 128)
+  grad.addColorStop(0, 'rgba(120,170,255,.5)')
+  grad.addColorStop(0.4, 'rgba(95,115,235,.16)')
+  grad.addColorStop(1, 'rgba(90,110,230,0)')
+  sc.fillStyle = grad
+  sc.fillRect(0, 0, 256, 256)
+  return c
+}
+const sprites = [
+  makeSprite(125, 227, 255),  // cyan
+  makeSprite(128, 122, 255),  // indigo
+  makeSprite(255, 178, 110),  // warm accent
+]
+// Full-opacity stroke colors matching the sprites; fade is done via globalAlpha
+const trailColor = ['rgba(125,227,255,1)', 'rgba(128,122,255,1)', 'rgba(255,178,110,1)']
+const coreGlow = makeCoreGlow()
+
+const N = 250
+const NSQ = 6                          // comet squads; each speech burst flings one
+const angle     = new Float32Array(N)  // orbital position
+const baseSpeed = new Float32Array(N)  // rad/s at speed multiplier 1
+const radOff    = new Float32Array(N)  // -1..1 bell-shaped, scaled by spread
+const size      = new Float32Array(N)  // draw size in px
+const baseAlpha = new Float32Array(N)
+const wobF      = new Float32Array(N)  // radial wobble frequency
+const wobA      = new Float32Array(N)  // radial wobble amplitude, px
+const twF       = new Float32Array(N)  // twinkle frequency
+const phase     = new Float32Array(N)
+const kickF     = new Float32Array(N)  // per-particle response to speech bursts
+const px        = new Float32Array(N)  // previous frame position, for velocity trails
+const py        = new Float32Array(N)
+const spriteIx  = new Uint8Array(N)
+
+for (let i = 0; i < N; i++) {
+  angle[i] = Math.random() * Math.PI * 2
+  baseSpeed[i] = 0.12 + Math.random() * 0.3
+  // sum of three uniforms gives a soft bell so the ring has a dense core with fuzzy edges
+  radOff[i] = (Math.random() + Math.random() + Math.random() - 1.5) / 1.5
+  size[i] = 4 + 11 * Math.pow(Math.random(), 2.2)
+  baseAlpha[i] = 0.45 + Math.random() * 0.55
+  wobF[i] = 0.4 + Math.random() * 0.9
+  wobA[i] = 2 + Math.random() * 5
+  twF[i] = 0.6 + Math.random() * 1.8
+  phase[i] = Math.random() * Math.PI * 2
+  kickF[i] = 0.6 + Math.random() * 0.9
+  const roll = Math.random()
+  spriteIx[i] = roll < 0.07 ? 2 : roll < 0.55 ? 0 : 1
+}
+
+// Physics targets per state; current values ease toward them over ~0.5s.
+// ecc bends the ring into a slowly precessing ellipse; trail gates comet tails;
+// order pulls particles into evenly spaced slots chasing at constant speed.
+// Working speed is tuned so mean per-particle drift matches the slot spin rate,
+// leaving only small constant offsets from perfectly even spacing.
+const STATES = {
+  idle:      { r: 0.36, spread: 0.100, speed: 0.55, alpha: 0.34, core: 0.12, ecc: 0,    trail: 0, order: 0 },
+  listening: { r: 0.25, spread: 0.028, speed: 1.10, alpha: 0.85, core: 0.34, ecc: 0,    trail: 0, order: 0 },
+  working:   { r: 0.26, spread: 0.024, speed: 7.40, alpha: 0.95, core: 0.40, ecc: 0,    trail: 1, order: 1 },
+  speaking:  { r: 0.24, spread: 0.050, speed: 4.60, alpha: 1.00, core: 0.46, ecc: 0.17, trail: 1, order: 0 },
+}
+const ORDER = ['idle', 'listening', 'working', 'speaking']
+const WORK_SPIN = 2.0  // rad/s of the working slot carousel
+let workSpin = 0
+let stateName = 'idle'
+let tgt = STATES.idle
+let curR = tgt.r, curSpread = tgt.spread, curSpeed = tgt.speed
+let curAlpha = tgt.alpha, curCore = tgt.core, curEcc = tgt.ecc, curTrail = tgt.trail
+let curOrder = tgt.order
+
+// Envelope followers, kept smooth across state changes
+let radEnv = 0   // fractional ring radius modulation
+let briEnv = 0   // brightness boost
+let eccPhase = 0 // orientation of the speaking ellipse, precesses over time
+
+// Each burst arms one squad; per-squad pulses decay independently so overlapping
+// bursts leave comet groups at different fling radii without any popping.
+const squadPulse = new Float32Array(NSQ)
+let burstIx = 0
+let burstArmed = true
+
+// Layered sines as fake mic level: smooth, wandering, never periodic-looking.
+// Amplitudes are cranked so the listening ring visibly breathes ~20% of radius.
+function micEnv(t) {
+  const e = 0.5
+    + 0.34 * Math.sin(t * 1.7) * Math.sin(t * 0.61 + 1.3)
+    + 0.20 * Math.sin(t * 3.3 + 0.7)
+    + 0.10 * Math.sin(t * 5.1 + 2.2)
+  return e < 0 ? 0 : e > 1 ? 1 : e
+}
+// Speech: gated bursts with real pauses (product of slow sines goes negative ~half the time)
+function speechEnv(t) {
+  let g = Math.sin(t * 3.1) * Math.sin(t * 1.43 + 0.8) * Math.sin(t * 0.617 + 2.0)
+  g = g > 0.02 ? Math.min(1, (g - 0.02) * 2.6) : 0
+  const carrier = 0.6 + 0.4 * Math.sin(t * 12.7 + 2.5 * Math.sin(t * 3.9))
+  return g * carrier
+}
+
+let t = 0
+let lastT = 0
+let raf = 0
+
+function frame(now) {
+  raf = requestAnimationFrame(frame)
+  let dt = (now - lastT) / 1000
+  lastT = now
+  if (dt > 0.05) dt = 0.05
+  if (dt <= 0) return
+  t += dt
+
+  // ~0.5s settle toward state targets
+  const k = 1 - Math.exp(-dt * 7)
+  curR      += (tgt.r      - curR)      * k
+  curSpread += (tgt.spread - curSpread) * k
+  curSpeed  += (tgt.speed  - curSpeed)  * k
+  curAlpha  += (tgt.alpha  - curAlpha)  * k
+  curCore   += (tgt.core   - curCore)   * k
+  curEcc    += (tgt.ecc    - curEcc)    * k
+  curTrail  += (tgt.trail  - curTrail)  * k
+  eccPhase += dt * 1.5
+  curOrder += (tgt.order - curOrder) * k
+  workSpin += dt * WORK_SPIN
+
+  // Working is deliberately envelope-free: constant speed and glow, so the
+  // circulation reads as steady internal machinery rather than audio reaction.
+  let radTgt, briTgt, speechNow = 0
+  if (stateName === 'listening') {
+    const e = micEnv(t)
+    radTgt = (e - 0.5) * 0.52    // +-26% radius excursion at full swing
+    briTgt = 0.8 * e
+  } else if (stateName === 'working') {
+    radTgt = 0
+    briTgt = 0.30
+  } else if (stateName === 'speaking') {
+    speechNow = speechEnv(t)
+    // rising edge past the threshold rotates to a fresh squad; re-arm in the quiet gap
+    if (speechNow > 0.3 && burstArmed) {
+      burstArmed = false
+      burstIx = (burstIx + 1) % NSQ
+    } else if (speechNow < 0.05) {
+      burstArmed = true
+    }
+    radTgt = 0.03 * speechNow
+    briTgt = 0.55 * speechNow
+  } else {
+    radTgt = 0.015 * Math.sin(t * 0.5)
+    briTgt = 0
+  }
+  radEnv += (radTgt - radEnv) * Math.min(1, dt * 9)
+  briEnv += (briTgt - briEnv) * Math.min(1, dt * 12)
+
+  // fast attack flings the active squad out; slow release pulls it back inward
+  const speaking = stateName === 'speaking'
+  for (let q = 0; q < NSQ; q++) {
+    const pq = speaking && q === burstIx ? speechNow : 0
+    squadPulse[q] += (pq - squadPulse[q]) * Math.min(1, dt * (pq > squadPulse[q] ? 26 : 4.5))
+  }
+
+  const ringR = curR * minDim * (1 + radEnv)
+  const spreadPx = curSpread * minDim
+  const sizeMul = 1 + 0.35 * briEnv
+  const maxTrail = ringR * 0.75
+
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.fillStyle = '#08080d'
+  ctx.fillRect(0, 0, vw, vh)
+  ctx.globalCompositeOperation = 'lighter'
+
+  const coreR = ringR * 0.95
+  const coreA = curCore * (0.55 + 0.9 * briEnv)
+  ctx.globalAlpha = coreA > 1 ? 1 : coreA
+  ctx.drawImage(coreGlow, cx - coreR, cy - coreR, coreR * 2, coreR * 2)
+
+  const glow = curAlpha * (1 + briEnv)
+  const drawTrails = curTrail > 0.02
+  const TAU = Math.PI * 2
+  for (let i = 0; i < N; i++) {
+    const sqP = squadPulse[i % NSQ]
+    // flung comets also whip around faster so their tails streak tangentially
+    angle[i] += (baseSpeed[i] * curSpeed + sqP * kickF[i] * 2.4 * curTrail) * dt
+    if (curOrder > 0.001) {
+      // ease toward an evenly spaced slot on a carousel spinning at WORK_SPIN
+      let da = workSpin + i * (TAU / N) - angle[i]
+      da -= Math.round(da / TAU) * TAU
+      angle[i] += da * curOrder * Math.min(1, dt * 7)
+    }
+    const ang = angle[i]
+    const r = ringR * (1 + curEcc * Math.cos(ang + ang - eccPhase))
+      + radOff[i] * spreadPx
+      + Math.sin(t * wobF[i] + phase[i]) * wobA[i]
+      + sqP * kickF[i] * ringR * 0.5
+    const x = cx + Math.cos(ang) * r
+    const y = cy + Math.sin(ang) * r
+    const tw = 0.72 + 0.28 * Math.sin(t * twF[i] + phase[i] * 3)
+    let a = baseAlpha[i] * glow * tw * (1 + sqP * 0.9 * curTrail)
+    if (a > 1) a = 1
+    const sz = size[i] * sizeMul
+
+    if (drawTrails) {
+      // tail spans ~85ms of motion: a stroked streak plus two fading sprite copies
+      const spanScale = 0.085 / dt
+      let tx = (x - px[i]) * spanScale
+      let ty = (y - py[i]) * spanScale
+      const l2 = tx * tx + ty * ty
+      if (l2 > 9) {
+        if (l2 > maxTrail * maxTrail) {
+          const f = maxTrail / Math.sqrt(l2)
+          tx *= f
+          ty *= f
+        }
+        ctx.globalAlpha = a * 0.5 * curTrail
+        ctx.strokeStyle = trailColor[spriteIx[i]]
+        ctx.lineWidth = sz * 0.38
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+        ctx.lineTo(x - tx, y - ty)
+        ctx.stroke()
+        ctx.globalAlpha = a * 0.34 * curTrail
+        const s1 = sz * 0.78
+        ctx.drawImage(sprites[spriteIx[i]], x - tx * 0.5 - s1 / 2, y - ty * 0.5 - s1 / 2, s1, s1)
+        ctx.globalAlpha = a * 0.15 * curTrail
+        const s0 = sz * 0.6
+        ctx.drawImage(sprites[spriteIx[i]], x - tx * 0.95 - s0 / 2, y - ty * 0.95 - s0 / 2, s0, s0)
+      }
+    }
+
+    ctx.globalAlpha = a
+    ctx.drawImage(sprites[spriteIx[i]], x - sz / 2, y - sz / 2, sz, sz)
+    px[i] = x
+    py[i] = y
+  }
+}
+
+function start() {
+  if (raf) return
+  lastT = performance.now()
+  raf = requestAnimationFrame(frame)
+}
+function stop() {
+  cancelAnimationFrame(raf)
+  raf = 0
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stop()
+  else start()
+})
+
+const buttons = document.querySelectorAll('#controls button')
+function setState(name) {
+  stateName = name
+  tgt = STATES[name]
+  buttons.forEach(b => b.classList.toggle('active', b.dataset.state === name))
+}
+buttons.forEach(b => b.addEventListener('click', () => setState(b.dataset.state)))
+canvas.addEventListener('click', () => {
+  setState(ORDER[(ORDER.indexOf(stateName) + 1) % ORDER.length])
+})
+window.addEventListener('keydown', e => {
+  if (e.key === '1') setState('idle')
+  else if (e.key === '2') setState('listening')
+  else if (e.key === '3') setState('working')
+  else if (e.key === '4') setState('speaking')
+})
+
+const isEmbed = location.search.indexOf('embed') !== -1
+let cycleTimer = 0
+function cycleNext() {
+  setState(ORDER[(ORDER.indexOf(stateName) + 1) % ORDER.length])
+}
+if (isEmbed) {
+  document.body.classList.add('embed')
+  cycleTimer = setInterval(cycleNext, 4000)
+}
+
+// Gallery page pins previews to one state (or resumes auto-cycling) via postMessage
+window.addEventListener('message', e => {
+  const d = e.data
+  if (!d || d.type !== 'voice-state') return
+  if (ORDER.indexOf(d.state) !== -1) {
+    clearInterval(cycleTimer)
+    cycleTimer = 0
+    setState(d.state)
+  } else if (d.state === 'auto' && isEmbed && !cycleTimer) {
+    cycleTimer = setInterval(cycleNext, 4000)
+  }
+})
+
+start()
+</script>
+</body>
+</html>

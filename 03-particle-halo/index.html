@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Particle Halo — Voice Agent Animation</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: #08080d;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  header {
+    position: fixed;
+    top: 20px;
+    left: 24px;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  header a {
+    color: rgba(255,255,255,.6);
+    text-decoration: none;
+    font-size: 13px;
+    transition: color .2s;
+  }
+  header a:hover { color: rgba(255,255,255,.95); }
+  header h1 {
+    color: rgba(255,255,255,.6);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: .04em;
+  }
+
+  nav {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    display: flex;
+    gap: 8px;
+    padding: 6px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.08);
+    backdrop-filter: blur(12px);
+  }
+  nav button {
+    appearance: none;
+    border: 1px solid transparent;
+    background: transparent;
+    color: rgba(255,255,255,.55);
+    font: 500 13px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 9px 18px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color .25s, background .25s, border-color .25s, box-shadow .25s;
+  }
+  nav button:hover { color: rgba(255,255,255,.85); }
+  nav button.active {
+    color: #d6f3ff;
+    background: rgba(110,200,255,.14);
+    border-color: rgba(110,200,255,.35);
+    box-shadow: 0 0 18px rgba(110,200,255,.18) inset;
+  }
+
+  body.embed header, body.embed nav { display: none; }
+</style>
+</head>
+<body>
+<canvas id="halo"></canvas>
+<header>
+  <a href="../">&larr; Gallery</a>
+  <h1>Particle Halo</h1>
+</header>
+<nav id="controls">
+  <button data-state="idle" class="active">Idle</button>
+  <button data-state="listening">Listening</button>
+  <button data-state="working">Working</button>
+  <button data-state="speaking">Speaking</button>
+</nav>
+<script>
+'use strict'
+
+const canvas = document.getElementById('halo')
+const ctx = canvas.getContext('2d')
+const DPR = Math.min(2, window.devicePixelRatio || 1)
+
+let vw = 0, vh = 0, cx = 0, cy = 0, minDim = 0
+function resize() {
+  vw = window.innerWidth
+  vh = window.innerHeight
+  canvas.width = Math.round(vw * DPR)
+  canvas.height = Math.round(vh * DPR)
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
+  cx = vw / 2
+  cy = vh / 2
+  minDim = Math.min(vw, vh)
+}
+window.addEventListener('resize', resize)
+resize()
+
+// Sprites are pre-rendered once; the frame loop only calls drawImage.
+function makeSprite(r, g, b) {
+  const c = document.createElement('canvas')
+  c.width = c.height = 64
+  const sc = c.getContext('2d')
+  const grad = sc.createRadialGradient(32, 32, 0, 32, 32, 32)
+  grad.addColorStop(0, 'rgba(255,255,255,.9)')
+  grad.addColorStop(0.18, 'rgba(' + r + ',' + g + ',' + b + ',.85)')
+  grad.addColorStop(0.5, 'rgba(' + r + ',' + g + ',' + b + ',.22)')
+  grad.addColorStop(1, 'rgba(' + r + ',' + g + ',' + b + ',0)')
+  sc.fillStyle = grad
+  sc.fillRect(0, 0, 64, 64)
+  return c
+}
+function makeCoreGlow() {
+  const c = document.createElement('canvas')
+  c.width = c.height = 256
+  const sc = c.getContext('2d')
+  const grad = sc.createRadialGradient(128, 128, 0, 128, 128, 128)
+  grad.addColorStop(0, 'rgba(120,170,255,.5)')
+  grad.addColorStop(0.4, 'rgba(95,115,235,.16)')
+  grad.addColorStop(1, 'rgba(90,110,230,0)')
+  sc.fillStyle = grad
+  sc.fillRect(0, 0, 256, 256)
+  return c
+}
+const sprites = [
+  makeSprite(125, 227, 255),  // cyan
+  makeSprite(128, 122, 255),  // indigo
+  makeSprite(255, 178, 110),  // warm accent
+]
+const coreGlow = makeCoreGlow()
+
+const TAU = Math.PI * 2
+const N = 260
+const angle     = new Float32Array(N)  // orbital position
+const baseSpeed = new Float32Array(N)  // rad/s at speed multiplier 1
+const radOff    = new Float32Array(N)  // -1..1 bell-shaped, scaled by spread
+const size      = new Float32Array(N)  // draw size in px
+const baseAlpha = new Float32Array(N)
+const wobF      = new Float32Array(N)  // radial wobble frequency
+const wobA      = new Float32Array(N)  // radial wobble amplitude, px
+const twF       = new Float32Array(N)  // twinkle frequency
+const phase     = new Float32Array(N)
+const kickF     = new Float32Array(N)  // per-particle response to speech bursts
+const clusterOff = new Float32Array(N) // fixed slot on the working-state dial
+const spriteIx  = new Uint8Array(N)
+
+const CLUSTERS = 5
+for (let i = 0; i < N; i++) {
+  angle[i] = Math.random() * Math.PI * 2
+  baseSpeed[i] = 0.12 + Math.random() * 0.3
+  // sum of three uniforms gives a soft bell so the ring has a dense core with fuzzy edges
+  radOff[i] = (Math.random() + Math.random() + Math.random() - 1.5) / 1.5
+  size[i] = 4 + 11 * Math.pow(Math.random(), 2.2)
+  baseAlpha[i] = 0.45 + Math.random() * 0.55
+  wobF[i] = 0.4 + Math.random() * 0.9
+  wobA[i] = 2 + Math.random() * 5
+  twF[i] = 0.6 + Math.random() * 1.8
+  phase[i] = Math.random() * Math.PI * 2
+  kickF[i] = 0.2 + Math.random() * 1.2
+  // even slot assignment plus bell jitter keeps the five dial clusters equal-sized but soft-edged
+  clusterOff[i] = (i % CLUSTERS) * (TAU / CLUSTERS)
+    + (Math.random() + Math.random() + Math.random() - 1.5) / 1.5 * 0.28
+  const roll = Math.random()
+  spriteIx[i] = roll < 0.07 ? 2 : roll < 0.55 ? 0 : 1
+}
+
+// Physics targets per state; current values ease toward them over ~0.5s.
+const STATES = {
+  idle:      { r: 0.36, spread: 0.100, speed: 0.55, alpha: 0.34, core: 0.12 },
+  listening: { r: 0.24, spread: 0.030, speed: 1.15, alpha: 0.80, core: 0.32 },
+  working:   { r: 0.26, spread: 0.035, speed: 1.00, alpha: 0.62, core: 0.26 },
+  speaking:  { r: 0.28, spread: 0.055, speed: 2.40, alpha: 1.00, core: 0.50 },
+}
+const ORDER = ['idle', 'listening', 'working', 'speaking']
+let stateName = 'idle'
+let tgt = STATES.idle
+let curR = tgt.r, curSpread = tgt.spread, curSpeed = tgt.speed
+let curAlpha = tgt.alpha, curCore = tgt.core
+
+// Envelope followers, kept smooth across state changes
+let radEnv = 0   // fractional ring radius modulation
+let briEnv = 0   // brightness boost 0..~0.6
+let pulse = 0    // speech burst follower, throws particles outward
+let clus = 0     // 0 = free orbit, 1 = bunched into the working-state dial
+let dial = 0     // rotation of the working-state dial
+const DIAL_SPEED = 0.8  // rad/s, steady and uniform for all particles
+
+// Layered sines as fake mic level: smooth, wandering, never periodic-looking
+function micEnv(t) {
+  const e = 0.5
+    + 0.30 * Math.sin(t * 1.7) * Math.sin(t * 0.61 + 1.3)
+    + 0.17 * Math.sin(t * 3.3 + 0.7)
+    + 0.09 * Math.sin(t * 5.1 + 2.2)
+  return e < 0 ? 0 : e > 1 ? 1 : e
+}
+// Speech: gated bursts with real pauses (product of slow sines goes negative ~half the time)
+function speechEnv(t) {
+  let g = Math.sin(t * 3.1) * Math.sin(t * 1.43 + 0.8) * Math.sin(t * 0.617 + 2.0)
+  g = g > 0.02 ? Math.min(1, (g - 0.02) * 2.6) : 0
+  const carrier = 0.6 + 0.4 * Math.sin(t * 12.7 + 2.5 * Math.sin(t * 3.9))
+  return g * carrier
+}
+
+let t = 0
+let lastT = 0
+let raf = 0
+
+function frame(now) {
+  raf = requestAnimationFrame(frame)
+  let dt = (now - lastT) / 1000
+  lastT = now
+  if (dt > 0.05) dt = 0.05
+  if (dt <= 0) return
+  t += dt
+
+  // ~0.5s settle toward state targets
+  const k = 1 - Math.exp(-dt * 7)
+  curR      += (tgt.r      - curR)      * k
+  curSpread += (tgt.spread - curSpread) * k
+  curSpeed  += (tgt.speed  - curSpeed)  * k
+  curAlpha  += (tgt.alpha  - curAlpha)  * k
+  curCore   += (tgt.core   - curCore)   * k
+
+  let radTgt, briTgt, speechTgt
+  if (stateName === 'listening') {
+    const e = micEnv(t)
+    radTgt = (e - 0.5) * 0.17
+    briTgt = 0.35 * e
+    speechTgt = 0
+  } else if (stateName === 'working') {
+    // deliberately regular tick, not audio-reactive: reads as internal processing
+    radTgt = 0.012 * Math.sin(t * 3.0)
+    briTgt = 0.16 + 0.14 * Math.sin(t * 3.0)
+    speechTgt = 0
+  } else if (stateName === 'speaking') {
+    const s = speechEnv(t)
+    radTgt = 0.02 * s
+    briTgt = 0.55 * s
+    speechTgt = s
+  } else {
+    radTgt = 0.015 * Math.sin(t * 0.5)
+    briTgt = 0
+    speechTgt = 0
+  }
+  radEnv += (radTgt - radEnv) * Math.min(1, dt * 8)
+  briEnv += (briTgt - briEnv) * Math.min(1, dt * 12)
+  // fast attack, slower release so each burst reads as an outward throw
+  pulse += (speechTgt - pulse) * Math.min(1, dt * (speechTgt > pulse ? 24 : 5))
+  clus += ((stateName === 'working' ? 1 : 0) - clus) * k
+  dial += DIAL_SPEED * dt
+
+  const ringR = curR * minDim * (1 + radEnv)
+  const spreadPx = curSpread * minDim
+  const kickPx = pulse * 0.055 * minDim
+  const sizeMul = 1 + 0.25 * briEnv
+  const wobMul = 1 - 0.7 * clus  // damp free wobble so the dial reads as orderly
+
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.fillStyle = '#08080d'
+  ctx.fillRect(0, 0, vw, vh)
+  ctx.globalCompositeOperation = 'lighter'
+
+  const coreR = ringR * 0.95
+  const coreA = curCore * (0.55 + 0.9 * briEnv)
+  ctx.globalAlpha = coreA > 1 ? 1 : coreA
+  ctx.drawImage(coreGlow, cx - coreR, cy - coreR, coreR * 2, coreR * 2)
+
+  const glow = curAlpha * (1 + briEnv)
+  for (let i = 0; i < N; i++) {
+    angle[i] += baseSpeed[i] * curSpeed * dt
+    if (clus > 0.001) {
+      // steer toward this particle's slot on the rotating dial via shortest arc,
+      // so entering/leaving working never causes a positional snap
+      let d = dial + clusterOff[i] - angle[i]
+      d -= TAU * Math.round(d / TAU)
+      angle[i] += d * Math.min(1, dt * 6) * clus
+    }
+    const r = ringR
+      + radOff[i] * spreadPx
+      + Math.sin(t * wobF[i] + phase[i]) * wobA[i] * wobMul
+      + kickF[i] * kickPx
+    const x = cx + Math.cos(angle[i]) * r
+    const y = cy + Math.sin(angle[i]) * r
+    const tw = 0.72 + 0.28 * Math.sin(t * twF[i] + phase[i] * 3)
+    const a = baseAlpha[i] * glow * tw
+    ctx.globalAlpha = a > 1 ? 1 : a
+    const s = size[i] * sizeMul
+    ctx.drawImage(sprites[spriteIx[i]], x - s / 2, y - s / 2, s, s)
+  }
+}
+
+function start() {
+  if (raf) return
+  lastT = performance.now()
+  raf = requestAnimationFrame(frame)
+}
+function stop() {
+  cancelAnimationFrame(raf)
+  raf = 0
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stop()
+  else start()
+})
+
+const buttons = document.querySelectorAll('#controls button')
+function setState(name) {
+  stateName = name
+  tgt = STATES[name]
+  buttons.forEach(b => b.classList.toggle('active', b.dataset.state === name))
+}
+buttons.forEach(b => b.addEventListener('click', () => setState(b.dataset.state)))
+canvas.addEventListener('click', () => {
+  setState(ORDER[(ORDER.indexOf(stateName) + 1) % ORDER.length])
+})
+window.addEventListener('keydown', e => {
+  if (e.key === '1') setState('idle')
+  else if (e.key === '2') setState('listening')
+  else if (e.key === '3') setState('working')
+  else if (e.key === '4') setState('speaking')
+})
+
+let autoTimer = null
+function startAutoCycle() {
+  autoTimer = setInterval(() => {
+    setState(ORDER[(ORDER.indexOf(stateName) + 1) % ORDER.length])
+  }, 4000)
+}
+
+if (location.search.indexOf('embed') !== -1) {
+  document.body.classList.add('embed')
+  startAutoCycle()
+}
+
+// Parent gallery drives state via postMessage: { type: 'voice-state', state }
+window.addEventListener('message', e => {
+  const d = e.data
+  if (!d || d.type !== 'voice-state') return
+  if (d.state === 'auto') {
+    if (autoTimer === null && location.search.indexOf('embed') !== -1) startAutoCycle()
+  } else if (ORDER.indexOf(d.state) !== -1) {
+    if (autoTimer !== null) {
+      clearInterval(autoTimer)
+      autoTimer = null
+    }
+    setState(d.state)
+  }
+})
+
+start()
+</script>
+</body>
+</html>

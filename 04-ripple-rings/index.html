@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>Ripple Rings — Voice Agent Animation</title>
+<style>
+  :root {
+    --ring-size: min(62vmin, 360px);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: #08080d;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  #stage {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+  }
+
+  .ring {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: var(--ring-size);
+    height: var(--ring-size);
+    margin: calc(var(--ring-size) / -2) 0 0 calc(var(--ring-size) / -2);
+    border-radius: 50%;
+    opacity: 0;
+    pointer-events: none;
+    will-change: transform, opacity;
+  }
+  .ring.thin {
+    border: 2px solid rgba(103, 232, 249, .9);
+    box-shadow: 0 0 14px rgba(34, 211, 238, .45), inset 0 0 14px rgba(34, 211, 238, .3);
+  }
+  .ring.soft {
+    border: 4px solid rgba(56, 189, 248, .5);
+    box-shadow: 0 0 26px rgba(56, 189, 248, .5), inset 0 0 20px rgba(56, 189, 248, .35);
+  }
+
+  #core {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 26px;
+    height: 26px;
+    margin: -13px 0 0 -13px;
+    will-change: transform;
+  }
+  #core .glow {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 170px;
+    height: 170px;
+    margin: -85px 0 0 -85px;
+    border-radius: 50%;
+    background: radial-gradient(circle,
+      rgba(96, 190, 255, .55) 0%,
+      rgba(47, 128, 255, .2) 40%,
+      rgba(47, 128, 255, 0) 70%);
+    will-change: opacity;
+  }
+  #core .dot {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: radial-gradient(circle at 38% 34%,
+      #eefaff 0%,
+      #7cd6ff 32%,
+      #2f7bff 68%,
+      rgba(47, 123, 255, 0) 100%);
+    box-shadow: 0 0 12px rgba(90, 180, 255, .95), 0 0 34px rgba(56, 140, 255, .55);
+  }
+
+  /* Working: an orbiting spark. The head spark plus three progressively
+     dimmer, smaller copies on trailing arms rotate rigidly as one assembly —
+     a comet-trail illusion from a single constant-speed rotation. */
+  #orbit {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 150px;
+    height: 150px;
+    margin: -75px 0 0 -75px;
+    opacity: 0;
+    pointer-events: none;
+    will-change: transform, opacity;
+    transition: opacity .5s ease;
+  }
+  #orbit.on { opacity: 1; }
+  #orbit .arm { position: absolute; inset: 0; }
+  #orbit .arm:nth-child(2) { transform: rotate(-15deg); }
+  #orbit .arm:nth-child(3) { transform: rotate(-29deg); }
+  #orbit .arm:nth-child(4) { transform: rotate(-42deg); }
+  #orbit .spark {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 10px;
+    height: 10px;
+    margin: -5px 0 0 -5px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%,
+      #f0fdff 0%,
+      #7ce8ff 45%,
+      rgba(34, 211, 238, 0) 100%);
+    box-shadow: 0 0 10px rgba(103, 232, 249, .9), 0 0 20px rgba(34, 211, 238, .5);
+  }
+  #orbit .arm:nth-child(2) .spark { opacity: .45; transform: scale(.78); }
+  #orbit .arm:nth-child(3) .spark { opacity: .24; transform: scale(.6); }
+  #orbit .arm:nth-child(4) .spark { opacity: .11; transform: scale(.45); }
+
+  /* Idle breathing runs in pure CSS so the rAF loop can stop entirely.
+     The 0% keyframes match the JS render() output at IDLE_LEVEL, so the
+     JS→CSS handoff is seamless. */
+  @keyframes breathe-core {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.08); }
+  }
+  @keyframes breathe-glow {
+    0%, 100% { opacity: .24; }
+    50%      { opacity: .4; }
+  }
+  #core.breathe        { animation: breathe-core 4.4s ease-in-out infinite; }
+  #core.breathe .glow  { animation: breathe-glow 4.4s ease-in-out infinite; }
+
+  header {
+    position: fixed;
+    top: 20px;
+    left: 24px;
+    z-index: 2;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  header a {
+    color: rgba(255,255,255,.6);
+    text-decoration: none;
+  }
+  header a:hover { color: rgba(255,255,255,.95); }
+  header .design-title { color: rgba(255,255,255,.6); }
+
+  #controls {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    display: flex;
+    gap: 6px;
+    padding: 6px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.08);
+  }
+  #controls button {
+    appearance: none;
+    border: 0;
+    padding: 8px 20px;
+    border-radius: 999px;
+    background: transparent;
+    color: rgba(255,255,255,.55);
+    font: 500 13px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+    cursor: pointer;
+    transition: background 0.25s ease, color 0.25s ease;
+  }
+  #controls button:hover { color: rgba(255,255,255,.85); }
+  #controls button.active {
+    background: rgba(34, 211, 238, .16);
+    color: #a5f3fc;
+    box-shadow: inset 0 0 0 1px rgba(34, 211, 238, .35);
+  }
+
+  body.embed header, body.embed #controls { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <a href="../">&larr; Gallery</a>
+  <div class="design-title">Ripple Rings</div>
+</header>
+
+<main id="stage" aria-label="Voice agent ripple animation">
+  <div id="rings"></div>
+  <div id="orbit">
+    <div class="arm"><div class="spark"></div></div>
+    <div class="arm"><div class="spark"></div></div>
+    <div class="arm"><div class="spark"></div></div>
+    <div class="arm"><div class="spark"></div></div>
+  </div>
+  <div id="core">
+    <div class="glow"></div>
+    <div class="dot"></div>
+  </div>
+</main>
+
+<nav id="controls" aria-label="State selector">
+  <button data-state="idle" class="active">Idle</button>
+  <button data-state="listening">Listening</button>
+  <button data-state="working">Working</button>
+  <button data-state="speaking">Speaking</button>
+</nav>
+
+<script>
+(() => {
+  'use strict'
+
+  const stage = document.getElementById('stage')
+  const core = document.getElementById('core')
+  const dot = core.querySelector('.dot')
+  const glow = core.querySelector('.glow')
+  const ringLayer = document.getElementById('rings')
+  const orbit = document.getElementById('orbit')
+  const buttons = Array.from(document.querySelectorAll('#controls button'))
+
+  const STATES = ['idle', 'listening', 'working', 'speaking']
+  const IDLE_LEVEL = 0.27
+  const ORBIT_MS = 2000
+
+  let state = 'idle'
+  let level = IDLE_LEVEL   // 0..1 energy driving core scale + brightness
+  let raf = null
+  let lastT = 0
+  let nextRingAt = 0
+  let idleTimer = null
+
+  // --- Ring pool: fixed-size divs recycled via Web Animations API
+  //     (compositor-only: transform + opacity). In-flight rings always run
+  //     their animation to completion, so state changes never snap them away.
+  const pool = []
+  for (let i = 0; i < 12; i++) {
+    const el = document.createElement('div')
+    el.className = 'ring thin'
+    ringLayer.appendChild(el)
+    pool.push({ el, busy: false })
+  }
+
+  function takeRing (kind) {
+    const slot = pool.find(s => !s.busy)
+    if (!slot) return null // pool exhausted: skip this ripple, never grow DOM
+    slot.busy = true
+    slot.el.className = 'ring ' + kind
+    return slot
+  }
+
+  function runRing (slot, keyframes, timing) {
+    const anim = slot.el.animate(keyframes, timing)
+    anim.onfinish = () => { slot.busy = false }
+  }
+
+  // Listening: rings start large + transparent and collapse into the core —
+  // sound being drawn in. Ease-in on the shrink makes the pull read clearly.
+  function spawnInward () {
+    const slot = takeRing(Math.random() < .55 ? 'thin' : 'soft')
+    if (!slot) return
+    runRing(slot, [
+      { transform: 'scale(1.14)', opacity: 0, easing: 'ease-out' },
+      { transform: 'scale(0.86)', opacity: .42, offset: .3, easing: 'cubic-bezier(.55,.05,.75,.4)' },
+      { transform: 'scale(0.05)', opacity: 0 }
+    ], { duration: 1650 + Math.random() * 450 })
+  }
+
+  // Speaking: rings burst outward from the core, brightness scaled by the
+  // amplitude of the speech burst that emitted them.
+  function spawnOutward (amp) {
+    const slot = takeRing(Math.random() < .55 ? 'thin' : 'soft')
+    if (!slot) return
+    const end = 1.1 + .35 * amp + Math.random() * .15
+    runRing(slot, [
+      { transform: 'scale(0.04)', opacity: .22 + .3 * amp },
+      { transform: 'scale(' + end.toFixed(3) + ')', opacity: 0 }
+    ], { duration: 780 + Math.random() * 280, easing: 'cubic-bezier(.15,.6,.35,1)' })
+  }
+
+  // Idle: one very faint ring drifting slowly outward, every few seconds.
+  function spawnDrift () {
+    const slot = takeRing('thin')
+    if (!slot) return
+    runRing(slot, [
+      { transform: 'scale(0.07)', opacity: 0, easing: 'ease-out' },
+      { transform: 'scale(0.5)', opacity: .14, offset: .35 },
+      { transform: 'scale(1)', opacity: 0 }
+    ], { duration: 5200, easing: 'linear' })
+  }
+
+  // --- Working orbit: one persistent constant-speed WAAPI rotation, paused
+  //     whenever the spark is not visible so steady non-working states pay
+  //     nothing for it. Opacity fades over .5s via the CSS transition.
+  const spin = orbit.animate(
+    [{ transform: 'rotate(0turn)' }, { transform: 'rotate(1turn)' }],
+    { duration: ORBIT_MS, iterations: Infinity }
+  )
+  spin.pause()
+  let orbitStopTimer = null
+
+  function setOrbit (on) {
+    clearTimeout(orbitStopTimer)
+    orbitStopTimer = null
+    if (on) {
+      spin.play()
+      orbit.classList.add('on')
+    } else if (orbit.classList.contains('on')) {
+      orbit.classList.remove('on')
+      orbitStopTimer = setTimeout(() => { spin.pause() }, 500)
+    }
+  }
+
+  // --- Core rendering: level maps to scale + brightness, compositor-only.
+  function render () {
+    core.style.transform = 'scale(' + (0.85 + level * 0.55).toFixed(4) + ')'
+    dot.style.opacity = (0.45 + level * 0.55).toFixed(3)
+    glow.style.opacity = (level * 0.9).toFixed(3)
+  }
+
+  // --- Speaking envelope: choppy burst/pause state machine. Only stronger
+  //     bursts emit rings (minor ones just flare the core), and long strong
+  //     bursts add an occasional extra wavefront — few overlapping ripples.
+  const RING_BURST = .75
+  const speech = { phase: 'pause', until: 0, target: 0, env: 0, nextEmit: 0 }
+
+  function stepSpeech (t, dt) {
+    if (t >= speech.until) {
+      if (speech.phase === 'pause') {
+        speech.phase = 'burst'
+        speech.until = t + 140 + Math.random() * 380
+        speech.target = .55 + Math.random() * .45
+        speech.nextEmit = t + 280
+        if (speech.target >= RING_BURST) spawnOutward(speech.target)
+      } else {
+        speech.phase = 'pause'
+        speech.until = t + 80 + Math.random() * 280
+        speech.target = .05
+      }
+    }
+    if (speech.phase === 'burst' && speech.target >= RING_BURST && t >= speech.nextEmit) {
+      spawnOutward(speech.target * (.7 + Math.random() * .3))
+      speech.nextEmit = t + 260 + Math.random() * 160
+    }
+    // Fast attack, slower decay — speech-like percussive envelope.
+    const k = speech.target > speech.env ? 30 : 12
+    speech.env += (speech.target - speech.env) * (1 - Math.exp(-k * dt))
+  }
+
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
+
+  function frame (t) {
+    raf = null
+    const dt = clamp((t - lastT) / 1000, 0.001, 0.05)
+    lastT = t
+    const tt = t / 1000
+
+    let target = IDLE_LEVEL
+    if (state === 'listening') {
+      // Layered incommensurate sines as a smooth pseudo-random mic level.
+      const n = (Math.sin(tt * 2.15) + Math.sin(tt * 3.71 + 1.3) + Math.sin(tt * 6.03 + 2.7)) / 2.4
+      target = clamp(.4 + .15 * n, .18, .62)
+      if (t >= nextRingAt) {
+        spawnInward()
+        nextRingAt = t + 950 + Math.random() * 550
+      }
+    } else if (state === 'working') {
+      // Steady metronomic pulse locked to the orbit period — deliberately
+      // regular and non audio-reactive; no rings are emitted.
+      target = .5 + .12 * Math.sin(tt * (2 * Math.PI * 1000 / ORBIT_MS))
+    } else if (state === 'speaking') {
+      stepSpeech(t, dt)
+      target = .12 + .62 * speech.env
+    }
+
+    // Exponential smoothing gives ~0.5s eased interpolation on state change;
+    // a stiffer constant while speaking preserves the choppiness.
+    const k = state === 'speaking' ? 14 : 7
+    level += (target - level) * (1 - Math.exp(-k * dt))
+    render()
+
+    // Once idle has settled, hand off to the CSS breathe animation and stop
+    // the loop entirely — steady idle costs no JS at all.
+    if (state === 'idle' && Math.abs(level - IDLE_LEVEL) < .006) {
+      level = IDLE_LEVEL
+      render()
+      core.classList.add('breathe')
+      return
+    }
+    raf = requestAnimationFrame(frame)
+  }
+
+  function ensureLoop () {
+    if (raf === null) {
+      lastT = performance.now()
+      raf = requestAnimationFrame(frame)
+    }
+  }
+
+  function scheduleDrift () {
+    clearTimeout(idleTimer)
+    idleTimer = setTimeout(() => {
+      if (state === 'idle' && !document.hidden) spawnDrift()
+      if (state === 'idle') scheduleDrift()
+    }, 4200 + Math.random() * 2800)
+  }
+
+  // Read the CSS-animated scale back so leaving idle mid-breath is seamless.
+  function levelFromComputedScale () {
+    const m = getComputedStyle(core).transform
+    if (!m || !m.startsWith('matrix(')) return IDLE_LEVEL
+    return clamp((parseFloat(m.slice(7)) - 0.85) / 0.55, 0, 1)
+  }
+
+  function setState (s) {
+    if (s === state) return
+    if (state === 'idle') {
+      level = levelFromComputedScale()
+      core.classList.remove('breathe')
+      clearTimeout(idleTimer)
+      idleTimer = null
+    }
+    state = s
+    buttons.forEach(b => b.classList.toggle('active', b.dataset.state === s))
+    const now = performance.now()
+    nextRingAt = now + 150
+    speech.phase = 'pause'
+    speech.until = now
+    speech.target = 0
+    speech.env = 0
+    setOrbit(s === 'working')
+    if (s === 'idle') scheduleDrift()
+    ensureLoop()
+  }
+
+  const cycle = () => setState(STATES[(STATES.indexOf(state) + 1) % STATES.length])
+
+  stage.addEventListener('click', cycle)
+  buttons.forEach(b => b.addEventListener('click', () => setState(b.dataset.state)))
+  addEventListener('keydown', e => {
+    const i = ['1', '2', '3', '4'].indexOf(e.key)
+    if (i >= 0) setState(STATES[i])
+  })
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      clearTimeout(idleTimer)
+      idleTimer = null
+    } else {
+      lastT = performance.now()
+      if (state === 'idle') scheduleDrift()
+    }
+  })
+
+  const embed = location.search.includes('embed')
+  let autoTimer = null
+  function startAutoCycle () {
+    if (!embed || autoTimer !== null) return
+    autoTimer = setInterval(() => { if (!document.hidden) cycle() }, 4000)
+  }
+  if (embed) {
+    document.body.classList.add('embed')
+    startAutoCycle()
+  }
+
+  // State control from a parent page embedding this one in an iframe
+  addEventListener('message', e => {
+    const d = e.data
+    if (!d || d.type !== 'voice-state') return
+    if (d.state === 'auto') {
+      startAutoCycle()
+    } else if (STATES.includes(d.state)) {
+      clearInterval(autoTimer)
+      autoTimer = null
+      setState(d.state)
+    }
+  })
+
+  render()
+  core.classList.add('breathe')
+  scheduleDrift()
+})()
+</script>
+</body>
+</html>

@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Waveform Bars — Voice Agent Animation</title>
+<style>
+  :root {
+    --glow: 0.12;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: #08080d;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  body.listening { --glow: 0.5; }
+  body.working   { --glow: 0.55; }
+  body.speaking  { --glow: 0.9; }
+
+  #stage {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+  }
+  .bars {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    height: 150px;
+  }
+  .bar {
+    position: relative;
+    width: 12px;
+    height: 128px;
+    will-change: transform, opacity;
+  }
+  .bar .core, .bar .glow {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #45e3ff 0%, #6d7bff 55%, #b46bff 100%);
+  }
+  /* Glow is a pre-blurred duplicate; only its opacity ever changes (via the
+     --glow variable transitioned per state), never the blur radius. */
+  .bar .glow {
+    filter: blur(9px);
+    opacity: var(--glow);
+    transition: opacity 0.5s ease;
+  }
+
+  header {
+    position: fixed;
+    top: 20px;
+    left: 24px;
+    z-index: 2;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  header a {
+    color: rgba(255,255,255,.6);
+    text-decoration: none;
+  }
+  header a:hover { color: rgba(255,255,255,.95); }
+  header .design-title { color: rgba(255,255,255,.6); }
+
+  #controls {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    display: flex;
+    gap: 6px;
+    padding: 6px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.08);
+  }
+  #controls button {
+    appearance: none;
+    border: 0;
+    padding: 8px 20px;
+    border-radius: 999px;
+    background: transparent;
+    color: rgba(255,255,255,.55);
+    font: 500 13px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+    cursor: pointer;
+    transition: background 0.25s ease, color 0.25s ease;
+  }
+  #controls button:hover { color: rgba(255,255,255,.85); }
+  #controls button.active {
+    background: rgba(255,255,255,.14);
+    color: #fff;
+  }
+
+  body.embed header, body.embed #controls { display: none; }
+</style>
+</head>
+<body class="idle">
+
+<header>
+  <a href="../">&larr; Gallery</a>
+  <div class="design-title">Waveform Bars</div>
+</header>
+
+<main id="stage" aria-label="Voice agent waveform animation">
+  <div class="bars" id="bars"></div>
+</main>
+
+<nav id="controls" aria-label="State selector">
+  <button data-state="idle" class="active">Idle</button>
+  <button data-state="listening">Listening</button>
+  <button data-state="working">Working</button>
+  <button data-state="speaking">Speaking</button>
+</nav>
+
+<script>
+(function () {
+  'use strict'
+
+  var TAU = Math.PI * 2
+  var BAR_COUNT = 7
+  var STATES = ['idle', 'listening', 'working', 'speaking']
+
+  var barsEl = document.getElementById('bars')
+  var stage = document.getElementById('stage')
+  var buttons = Array.prototype.slice.call(document.querySelectorAll('#controls button'))
+
+  var bars = []
+  for (var i = 0; i < BAR_COUNT; i++) {
+    var bar = document.createElement('div')
+    bar.className = 'bar'
+    bar.innerHTML = '<span class="glow"></span><span class="core"></span>'
+    barsEl.appendChild(bar)
+    // Per-bar randomized frequencies/phases give the speaking state its
+    // irregular, non-repeating character. Center bars get more headroom.
+    var centerDist = Math.abs(i - (BAR_COUNT - 1) / 2) / ((BAR_COUNT - 1) / 2)
+    bars.push({
+      el: bar,
+      f1: 10 + Math.random() * 6,
+      p1: Math.random() * TAU,
+      f2: 19 + Math.random() * 8,
+      p2: Math.random() * TAU,
+      fe: 0.7 + Math.random() * 1.3,
+      pe: Math.random() * TAU,
+      amp: 1 - 0.28 * centerDist
+    })
+  }
+
+  var state = 'idle'
+  // Per-state blend weights eased exponentially; values are the normalized
+  // weighted mix, so mid-transition state changes stay smooth (~0.5s settle).
+  var weights = { idle: 1, listening: 0, working: 0, speaking: 0 }
+  var WEIGHT_TAU = 0.13
+
+  // Global speech envelope: jumps between random burst/rest targets with a
+  // fast attack and slower decay, which reads as choppy speech cadence.
+  var env = 0
+  var envTarget = 0
+  var nextEnvChange = 0
+
+  function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v }
+
+  function idleScale(t) {
+    return 0.07 + 0.022 * (0.5 + 0.5 * Math.sin(t * 1.4))
+  }
+
+  function listeningScale(t, b, i) {
+    var v = 0.34 + 0.22 * Math.sin(t * 2.6 - i * 0.85) + 0.06 * Math.sin(t * 4.3 + i * 0.5)
+    return Math.max(0.07, v)
+  }
+
+  // Working: a KITT-style scanner — a Gaussian pulse of height/brightness
+  // ping-pongs across the bars at a fixed tempo. Fully deterministic (no
+  // audio envelope), reading as steady internal processing.
+  var WORK_SWEEP = 1.1
+  function workingPulse(t, i) {
+    var phase = (t / WORK_SWEEP) % 2
+    var pos = (phase <= 1 ? phase : 2 - phase) * (BAR_COUNT - 1)
+    var d = i - pos
+    return Math.exp(-d * d / 1.6)
+  }
+
+  function speakingScale(t, b) {
+    var wave = Math.abs(Math.sin(t * b.f1 + b.p1) * 0.62 + Math.sin(t * b.f2 + b.p2) * 0.38)
+    var localEnv = env * (0.72 + 0.28 * Math.sin(t * b.fe + b.pe))
+    return 0.08 + clamp01(localEnv) * b.amp * (0.12 + 0.88 * wave)
+  }
+
+  function updateEnvelope(t, dt) {
+    if (t >= nextEnvChange) {
+      envTarget = Math.random() < 0.28
+        ? Math.random() * 0.12
+        : 0.55 + Math.random() * 0.45
+      nextEnvChange = t + 0.12 + Math.random() * 0.33
+    }
+    var tau = envTarget > env ? 0.045 : 0.11
+    env += (envTarget - env) * (1 - Math.exp(-dt / tau))
+  }
+
+  var lastT = null
+  var rafId = null
+  var idleAccum = 0
+
+  function frame(now) {
+    rafId = requestAnimationFrame(frame)
+    var t = now / 1000
+    if (lastT === null) lastT = t
+    var dt = Math.min(t - lastT, 0.1)
+    lastT = t
+
+    var k = 1 - Math.exp(-dt / WEIGHT_TAU)
+    var total = 0
+    for (var s = 0; s < STATES.length; s++) {
+      var name = STATES[s]
+      weights[name] += ((name === state ? 1 : 0) - weights[name]) * k
+      total += weights[name]
+    }
+
+    var settled = weights.idle > 0.995
+    if (state === 'idle' && settled) {
+      // Idle breathing is slow; ~15fps keeps it near-zero cost.
+      idleAccum += dt
+      if (idleAccum < 0.066) return
+      idleAccum = 0
+    }
+
+    if (weights.speaking > 0.001 || state === 'speaking') updateEnvelope(t, dt)
+
+    var wI = weights.idle / total
+    var wL = weights.listening / total
+    var wW = weights.working / total
+    var wS = weights.speaking / total
+    var iv = idleScale(t)
+
+    for (var j = 0; j < BAR_COUNT; j++) {
+      var b = bars[j]
+      var scale = 0
+      var opacity = 0
+      if (wI > 0.001) { scale += wI * iv; opacity += wI * 0.35 }
+      if (wL > 0.001) { scale += wL * listeningScale(t, b, j); opacity += wL * 0.85 }
+      if (wW > 0.001) {
+        var pulse = workingPulse(t, j)
+        scale += wW * (0.12 + 0.42 * pulse)
+        opacity += wW * (0.5 + 0.45 * pulse)
+      }
+      if (wS > 0.001) {
+        var sv = speakingScale(t, b)
+        scale += wS * sv
+        opacity += wS * (0.72 + 0.28 * clamp01(sv * 1.4))
+      }
+      b.el.style.transform = 'scaleY(' + scale.toFixed(4) + ')'
+      b.el.style.opacity = opacity.toFixed(3)
+    }
+  }
+
+  function start() {
+    if (rafId === null) {
+      lastT = null
+      rafId = requestAnimationFrame(frame)
+    }
+  }
+  function stop() {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId)
+      rafId = null
+    }
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) stop()
+    else start()
+  })
+
+  function setState(next) {
+    if (STATES.indexOf(next) === -1 || next === state) return
+    state = next
+    document.body.classList.remove('idle', 'listening', 'working', 'speaking')
+    document.body.classList.add(next)
+    buttons.forEach(function (btn) {
+      btn.classList.toggle('active', btn.dataset.state === next)
+    })
+  }
+
+  function cycle() {
+    setState(STATES[(STATES.indexOf(state) + 1) % STATES.length])
+  }
+
+  buttons.forEach(function (btn) {
+    btn.addEventListener('click', function () { setState(btn.dataset.state) })
+  })
+  stage.addEventListener('click', cycle)
+  document.addEventListener('keydown', function (e) {
+    if (e.key === '1') setState('idle')
+    else if (e.key === '2') setState('listening')
+    else if (e.key === '3') setState('working')
+    else if (e.key === '4') setState('speaking')
+  })
+
+  var autoTimer = null
+  function startAutoCycle() {
+    autoTimer = setInterval(cycle, 4000)
+  }
+
+  if (location.search.indexOf('embed') !== -1) {
+    document.body.classList.add('embed')
+    startAutoCycle()
+  }
+
+  // Parent gallery drives state via postMessage: { type: 'voice-state', state }
+  window.addEventListener('message', function (e) {
+    var d = e.data
+    if (!d || d.type !== 'voice-state') return
+    if (d.state === 'auto') {
+      if (autoTimer === null && location.search.indexOf('embed') !== -1) startAutoCycle()
+    } else if (STATES.indexOf(d.state) !== -1) {
+      if (autoTimer !== null) {
+        clearInterval(autoTimer)
+        autoTimer = null
+      }
+      setState(d.state)
+    }
+  })
+
+  start()
+})()
+</script>
+</body>
+</html>

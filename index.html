@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voice Agent Animations — Gallery</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #08080d;
+    color: rgba(255, 255, 255, .85);
+    font-family: system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    padding: 48px 40px 120px;
+  }
+
+  .statebar {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 4px;
+    padding: 5px;
+    border-radius: 999px;
+    background: rgba(16, 16, 26, .78);
+    border: 1px solid rgba(255, 255, 255, .12);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, .5);
+    z-index: 10;
+  }
+
+  .statebar button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: rgba(255, 255, 255, .55);
+    font: 500 13px/1 system-ui, -apple-system, sans-serif;
+    padding: 9px 18px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background .2s, color .2s;
+  }
+
+  .statebar button:hover { color: rgba(255, 255, 255, .85); }
+
+  .statebar button.active {
+    background: linear-gradient(90deg, rgba(103, 232, 249, .25), rgba(167, 139, 250, .25));
+    color: #fff;
+  }
+
+  header { max-width: 1400px; margin: 0 auto 40px; }
+
+  h1 {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    background: linear-gradient(90deg, #67e8f9, #a78bfa, #f472b6);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    display: inline-block;
+  }
+
+  header p {
+    margin-top: 8px;
+    font-size: 14px;
+    color: rgba(255, 255, 255, .45);
+    max-width: 640px;
+    line-height: 1.5;
+  }
+
+  .grid {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 24px;
+  }
+
+  .card {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    border: 1px solid rgba(255, 255, 255, .07);
+    border-radius: 16px;
+    overflow: hidden;
+    background: #0b0b12;
+    transition: border-color .25s, transform .25s;
+  }
+
+  .card:hover {
+    border-color: rgba(255, 255, 255, .22);
+    transform: translateY(-2px);
+  }
+
+  .preview {
+    position: relative;
+    aspect-ratio: 16 / 10;
+    overflow: hidden;
+    background: #08080d;
+  }
+
+  .preview iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+    /* iframe never sees the mouse; the whole card is one link */
+    pointer-events: none;
+  }
+
+  .meta {
+    padding: 14px 18px 16px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .meta h2 { font-size: 15px; font-weight: 600; }
+
+  .meta .num {
+    font-size: 12px;
+    color: rgba(255, 255, 255, .3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .meta p {
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, .45);
+    line-height: 1.45;
+    flex: 1;
+  }
+
+  .meta .left { flex: 1; }
+  .meta .left p { margin-top: 3px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Voice Agent Animations</h1>
+  <p>Lightweight, GPU-friendly status animations for a voice assistant.
+     Previews auto-cycle idle &rarr; listening &rarr; working &rarr; speaking every 4 seconds, or use the
+     floating switch below to pin every preview to one state at once.
+     Click a card to open it full-screen and drive the states yourself (buttons, keys 1&ndash;4, or click to cycle).</p>
+</header>
+<main class="grid">
+  <a class="card" href="01-aurora-orb/">
+    <div class="preview"><iframe src="01-aurora-orb/?embed" loading="lazy" title="Aurora Orb"></iframe></div>
+    <div class="meta">
+      <div class="left"><h2>Aurora Orb</h2><p>WebGL shader orb with flowing aurora color fields — the most Siri-like.</p></div>
+      <span class="num">01</span>
+    </div>
+  </a>
+  <a class="card" href="02-waveform-bars/">
+    <div class="preview"><iframe src="02-waveform-bars/?embed" loading="lazy" title="Waveform Bars"></iframe></div>
+    <div class="meta">
+      <div class="left"><h2>Waveform Bars</h2><p>Classic equalizer bars, transform-only animation. Dots when idle, speech bounce when talking.</p></div>
+      <span class="num">02</span>
+    </div>
+  </a>
+  <a class="card" href="03-particle-halo/">
+    <div class="preview"><iframe src="03-particle-halo/?embed" loading="lazy" title="Particle Halo"></iframe></div>
+    <div class="meta">
+      <div class="left"><h2>Particle Halo</h2><p>Orbiting particle ring that tightens to listen and radiates pulses to speak.</p></div>
+      <span class="num">03</span>
+    </div>
+  </a>
+  <a class="card" href="03b-halo-comets/">
+    <div class="preview"><iframe src="03b-halo-comets/?embed" loading="lazy" title="Halo Comets"></iframe></div>
+    <div class="meta">
+      <div class="left"><h2>Halo Comets</h2><p>Particle Halo variation: strong ring breathing to listen, streaking comet tails to speak.</p></div>
+      <span class="num">03b</span>
+    </div>
+  </a>
+  <a class="card" href="03c-halo-equalizer/">
+    <div class="preview"><iframe src="03c-halo-equalizer/?embed" loading="lazy" title="Halo Equalizer"></iframe></div>
+    <div class="meta">
+      <div class="left"><h2>Halo Equalizer</h2><p>Particle Halo variation: rolling ring waveform to listen, radial equalizer spokes to speak.</p></div>
+      <span class="num">03c</span>
+    </div>
+  </a>
+  <a class="card" href="03d-halo-supernova/">
+    <div class="preview"><iframe src="03d-halo-supernova/?embed" loading="lazy" title="Halo Supernova"></iframe></div>
+    <div class="meta">
+      <div class="left"><h2>Halo Supernova</h2><p>Particle Halo variation: inward particle streams to listen, dual rings with shockwave bursts to speak.</p></div>
+      <span class="num">03d</span>
+    </div>
+  </a>
+  <a class="card" href="03e-halo-fusion/">
+    <div class="preview"><iframe src="03e-halo-fusion/?embed" loading="lazy" title="Halo Fusion"></iframe></div>
+    <div class="meta">
+      <div class="left"><h2>Halo Fusion</h2><p>Comets and Equalizer combined: comet-tail orbit while working, radial spokes while speaking.</p></div>
+      <span class="num">03e</span>
+    </div>
+  </a>
+  <a class="card" href="04-ripple-rings/">
+    <div class="preview"><iframe src="04-ripple-rings/?embed" loading="lazy" title="Ripple Rings"></iframe></div>
+    <div class="meta">
+      <div class="left"><h2>Ripple Rings</h2><p>Concentric ripples: rings collapse inward when listening, burst outward when speaking.</p></div>
+      <span class="num">04</span>
+    </div>
+  </a>
+  <a class="card" href="05-metaball-blob/">
+    <div class="preview"><iframe src="05-metaball-blob/?embed" loading="lazy" title="Morphing Blob"></iframe></div>
+    <div class="meta">
+      <div class="left"><h2>Morphing Blob</h2><p>Organic liquid droplet that trembles to incoming sound and surges while talking.</p></div>
+      <span class="num">05</span>
+    </div>
+  </a>
+  <a class="card" href="06-liquid-gradient/">
+    <div class="preview"><iframe src="06-liquid-gradient/?embed" loading="lazy" title="Liquid Gradient"></iframe></div>
+    <div class="meta">
+      <div class="left"><h2>Liquid Gradient</h2><p>Pure-CSS swirling gradient orb — zero JavaScript per frame.</p></div>
+      <span class="num">06</span>
+    </div>
+  </a>
+  <a class="card" href="07-dot-matrix/">
+    <div class="preview"><iframe src="07-dot-matrix/?embed" loading="lazy" title="Dot Matrix"></iframe></div>
+    <div class="meta">
+      <div class="left"><h2>Dot Matrix</h2><p>Speaker-grille dot lattice: brightness waves flow inward to listen, outward to speak.</p></div>
+      <span class="num">07</span>
+    </div>
+  </a>
+  <a class="card" href="08-oscilloscope-line/">
+    <div class="preview"><iframe src="08-oscilloscope-line/?embed" loading="lazy" title="Oscilloscope Line"></iframe></div>
+    <div class="meta">
+      <div class="left"><h2>Oscilloscope Line</h2><p>Google-Assistant-style luminous waveform line with speech-cadence surges.</p></div>
+      <span class="num">08</span>
+    </div>
+  </a>
+  <a class="card" href="09-arc-ring/">
+    <div class="preview"><iframe src="09-arc-ring/?embed" loading="lazy" title="Arc Ring"></iframe></div>
+    <div class="meta">
+      <div class="left"><h2>Arc Ring</h2><p>Concentric orbital arcs whose lengths and speeds dance with the voice.</p></div>
+      <span class="num">09</span>
+    </div>
+  </a>
+  <a class="card" href="10-nebula-cloud/">
+    <div class="preview"><iframe src="10-nebula-cloud/?embed" loading="lazy" title="Nebula Cloud"></iframe></div>
+    <div class="meta">
+      <div class="left"><h2>Nebula Cloud</h2><p>Pseudo-3D particle sphere that condenses to listen and pulses radially to speak.</p></div>
+      <span class="num">10</span>
+    </div>
+  </a>
+</main>
+<nav class="statebar" aria-label="Set state for all previews">
+  <button data-state="auto" class="active">Auto</button>
+  <button data-state="idle">Idle</button>
+  <button data-state="listening">Listening</button>
+  <button data-state="working">Working</button>
+  <button data-state="speaking">Speaking</button>
+</nav>
+<script>
+  const bar = document.querySelector('.statebar')
+  const frames = [...document.querySelectorAll('iframe')]
+  let current = 'auto'
+
+  function send(frame, state) {
+    if (frame.contentWindow) frame.contentWindow.postMessage({ type: 'voice-state', state }, '*')
+  }
+
+  bar.addEventListener('click', (e) => {
+    const btn = e.target.closest('button')
+    if (!btn) return
+    current = btn.dataset.state
+    for (const b of bar.children) b.classList.toggle('active', b === btn)
+    frames.forEach((f) => send(f, current))
+  })
+
+  // Lazy-loaded iframes miss broadcasts sent before they exist; sync them on load
+  frames.forEach((f) => {
+    f.addEventListener('load', () => {
+      if (current !== 'auto') send(f, current)
+    })
+  })
+</script>
+</body>
+</html>
