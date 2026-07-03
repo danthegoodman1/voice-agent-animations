@@ -197,8 +197,27 @@ for (let i = 0; i < 16; i++) {
   coolSprites.push(makeSprite(coolPalette(i / 15)))
 }
 const glow = makeSprite(palette(0.3))
-const coreGlow = makeSprite([110, 215, 255])
+const coreGlow = makeSprite([255, 205, 140]) // golden heart, shared by all states
 const ember = makeSprite([255, 196, 120])
+
+// golden heart cluster: a pinch of ember particles packed at the center.
+// They ride the same rotation and projection as the cloud, so the heart
+// has depth and parallax instead of sitting flat at screen center.
+const HN = 14
+const hx = new Float32Array(HN), hy = new Float32Array(HN), hz = new Float32Array(HN)
+const hSz = new Float32Array(HN), hTwF = new Float32Array(HN), hTwP = new Float32Array(HN)
+for (let i = 0; i < HN; i++) {
+  const u = Math.random() * 2 - 1
+  const a = Math.random() * Math.PI * 2
+  const s = Math.sqrt(1 - u * u)
+  const r = 0.02 + 0.06 * Math.cbrt(Math.random())
+  hx[i] = s * Math.cos(a) * r
+  hy[i] = u * r
+  hz[i] = s * Math.sin(a) * r
+  hSz[i] = 0.01 + 0.012 * Math.random()
+  hTwF[i] = 1.5 + 4 * Math.random()
+  hTwP[i] = Math.random() * Math.PI * 2
+}
 
 // listening ripples: each voice peak launches a thin spherical shell of
 // brightness that travels inward through the cloud, like sound being absorbed
@@ -226,14 +245,21 @@ const CFG = {
 let state = 'idle'
 let radCur = 1, speedCur = 0.05, brightCur = 0.4, boostCur = 0, ampCur = 0
 let envLevel = 0
-// slow follower of the envelope: drives the core glow so it swells gently
+// slow follower of the envelope: lets listening visuals swell gently
 // instead of pulsing at speech rate
 let envSlow = 0
 let prevRaw = 0
-// crossfade weight for listening-only visuals: cool palette, ripples, core glow
+// crossfade weight for listening-only visuals: cool palette, ripples
 let wListen = 0
 // crossfade weight for working-only visuals: synapse links and firing pulses
 let wWork = 0
+// crossfade weight for speaking, used to blend the golden heart's drivers
+let wSpeak = 0
+// event accents for the heart: a quick flare when a ripple collapses at the
+// center or a thought pulse arrives near it, and a follower of overall
+// cascade activity so the heart flickers along with the working synapses
+let coreFlare = 0
+let workAct = 0
 
 // speech gate: random bursts and pauses, with occasional longer word gaps
 let burstT = 0, burstLevel = 0
@@ -319,6 +345,7 @@ function frame(now) {
   ampCur += (cfg.amp - ampCur) * ease
   wListen += ((state === 'listening' ? 1 : 0) - wListen) * ease
   wWork += ((state === 'working' ? 1 : 0) - wWork) * ease
+  wSpeak += ((state === 'speaking' ? 1 : 0) - wSpeak) * ease
 
   let raw = 0
   if (state === 'listening') {
@@ -334,14 +361,20 @@ function frame(now) {
   // fast attack / slow release keeps speech pulses punchy yet organic
   envLevel += (raw - envLevel) * (1 - Math.exp(-dt * (raw > envLevel ? 28 : 9)))
   envSlow += (envLevel - envSlow) * (1 - Math.exp(-dt * 2.5))
+  // event accents fade quickly on their own clocks
+  coreFlare *= Math.exp(-dt * 4)
+  workAct *= Math.exp(-dt * 2)
 
   // one ripple per voice peak: rising-edge trigger on the raw mic level
   if (state === 'listening' && raw > 0.62 && prevRaw <= 0.62) spawnRipple(0.5 + 0.5 * raw)
   prevRaw = raw
   for (let k = 0; k < RIPMAX; k++) {
     if (!ripOn[k]) continue
+    const before = ripR[k]
     ripR[k] -= dt * 1.1
-    if (ripR[k] < -0.15) ripOn[k] = 0 // let the shell collapse fully at the center
+    // the heart absorbs each ripple: flare at the moment the shell collapses
+    if (before > 0 && ripR[k] <= 0) coreFlare = Math.min(1, coreFlare + 0.7 * ripS[k])
+    if (ripR[k] < -0.15) ripOn[k] = 0 // let the shell fade fully at the center
   }
 
   ry += speedCur * dt
@@ -367,11 +400,41 @@ function frame(now) {
   const gs = unit * (0.75 + 0.15 * envLevel)
   ctx.drawImage(glow, cxs - gs / 2, cys - gs / 2, gs, gs)
 
-  if (wListen > 0.01) {
-    // attention core swells gently with the slow envelope, never pulses
-    ctx.globalAlpha = wListen * (0.1 + 0.18 * envSlow)
-    const cs = unit * (0.26 + 0.1 * envSlow)
-    ctx.drawImage(coreGlow, cxs - cs / 2, cys - cs / 2, cs, cs)
+  // golden heart: one concept, driven by each state's own mechanics.
+  // Idle banks it to a faint ember breathing on a ~14s cycle; listening
+  // feeds it with the ripples it absorbs; working makes it flicker with
+  // cascade activity and flare when a thought reaches the center;
+  // speaking swells it gently with speech energy, keeping only a hint of
+  // per-burst sync so the rim surges still trace back to the heart.
+  const wIdle = 1 - Math.min(1, wListen + wWork + wSpeak)
+  let heart = wIdle * (0.2 + 0.16 * (0.5 + 0.5 * Math.sin(t * 0.45)))
+    + wListen * (0.45 + 0.5 * envSlow)
+    + wWork * (0.3 + 0.3 * workAct)
+    + wSpeak * (0.35 + 0.2 * envSlow + 0.15 * envLevel)
+    + coreFlare * 0.5
+  if (heart > 1.3) heart = 1.3
+  // a faint binding glow keeps the cluster reading as one mass in dim
+  // states rather than a few stray dots
+  const cs = unit * (0.13 + 0.06 * heart)
+  ctx.globalAlpha = Math.min(1, 0.07 * heart)
+  ctx.drawImage(coreGlow, cxs - cs / 2, cys - cs / 2, cs, cs)
+  ctx.globalAlpha = Math.min(1, 0.2 * heart)
+  const ks = cs * 0.4
+  ctx.drawImage(coreGlow, cxs - ks / 2, cys - ks / 2, ks, ks)
+
+  // the cluster tightens when calm and spreads slightly as the heart burns
+  const hm = radCur * (0.8 + 0.35 * heart)
+  for (let i = 0; i < HN; i++) {
+    const X = hx[i] * hm, Y = hy[i] * hm, Z = hz[i] * hm
+    const x1 = X * cy + Z * sy
+    const z1 = Z * cy - X * sy
+    const y2 = Y * cx - z1 * sx
+    const z2 = Y * sx + z1 * cx
+    const p = F / (F + z2)
+    const htw = 0.75 + 0.25 * Math.sin(t * hTwF[i] + hTwP[i])
+    ctx.globalAlpha = Math.min(1, heart * htw * 0.9)
+    const hs = hSz[i] * unit * p * (0.7 + 0.5 * heart)
+    ctx.drawImage(ember, cxs + x1 * p * R - hs / 2, cys + y2 * p * R - hs / 2, hs, hs)
   }
 
   const envAmp = envLevel * ampCur
@@ -466,6 +529,9 @@ function frame(now) {
         const at = pTo[k]
         excite[at] = 1
         pOn[k] = 0
+        workAct = Math.min(1, workAct + 0.06)
+        // a thought arriving near the center makes the heart flare softly
+        if (prad[at] < 0.35) coreFlare = Math.min(1, coreFlare + 0.18)
         // usually keep hopping, sometimes branch; combined odds stay below 1
         // so every cascade eventually dies out and activity comes in waves
         if (Math.random() < 0.8) fireFrom(at)
